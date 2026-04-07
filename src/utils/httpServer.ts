@@ -195,22 +195,18 @@ export function startOAuthHttpServer(
 					return;
 				}
 
-				res
-					.status(404)
-					.json({
-						jsonrpc: "2.0",
-						error: { code: -32000, message: "Session not found" },
-						id: null,
-					});
+				res.status(404).json({
+					jsonrpc: "2.0",
+					error: { code: -32000, message: "Session not found" },
+					id: null,
+				});
 			} catch {
 				if (!res.headersSent) {
-					res
-						.status(500)
-						.json({
-							jsonrpc: "2.0",
-							error: { code: -32603, message: "Internal error" },
-							id: null,
-						});
+					res.status(500).json({
+						jsonrpc: "2.0",
+						error: { code: -32603, message: "Internal error" },
+						id: null,
+					});
 				}
 			}
 		},
