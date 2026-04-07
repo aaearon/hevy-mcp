@@ -38,12 +38,13 @@ describe("HTTP transport integration", () => {
 		const transport = new StreamableHTTPClientTransport(url);
 		const client = new Client({ name: "test-client", version: "0.0.0" });
 		await client.connect(transport);
-
-		const result = await client.listTools();
-		expect(result).toHaveProperty("tools");
-		expect(Array.isArray(result.tools)).toBe(true);
-		expect(result.tools.find((t) => t.name === "noop")).toBeDefined();
-
-		await client.close();
+		try {
+			const result = await client.listTools();
+			expect(result).toHaveProperty("tools");
+			expect(Array.isArray(result.tools)).toBe(true);
+			expect(result.tools.find((t) => t.name === "noop")).toBeDefined();
+		} finally {
+			await client.close();
+		}
 	});
 });

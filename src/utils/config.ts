@@ -39,7 +39,13 @@ export function parseConfig(
 		}
 		const portMatch = raw.match(/^--port=(\d+)$/);
 		if (portMatch) {
-			port = parseInt(portMatch[1], 10);
+			const parsedPort = parseInt(portMatch[1], 10);
+			if (parsedPort < 0 || parsedPort > 65535) {
+				throw new Error(
+					`Invalid --port value "${portMatch[1]}". Expected an integer between 0 and 65535.`,
+				);
+			}
+			port = parsedPort;
 		}
 	}
 	if (!apiKey) {

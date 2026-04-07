@@ -56,4 +56,10 @@ describe("parseConfig", () => {
 		const cfg = parseConfig([], env({}));
 		expect(cfg.port).toBeUndefined();
 	});
+
+	it("throws on out-of-range port", () => {
+		expect(() => parseConfig(["--port=99999"], env({}))).toThrow(
+			/Invalid --port value/,
+		);
+	});
 });
