@@ -21,10 +21,14 @@ import type { AuthInfo } from "@modelcontextprotocol/sdk/server/auth/types.js";
 const ACCESS_TOKEN_TTL = 3600;
 const REFRESH_TOKEN_TTL = 30 * 86400;
 const AUTH_CODE_TTL = 300;
+// Pending sessions expire after 10 minutes; cleaned up lazily on each authorize()
+const PENDING_SESSION_TTL_MS = 10 * 60 * 1000;
+const MAX_PENDING_SESSIONS = 1000;
 
 type PendingSession = {
 	client: OAuthClientInformationFull;
 	params: AuthorizationParams;
+	expiresAt: number;
 };
 
 export class SQLiteOAuthProvider implements OAuthServerProvider {
@@ -109,14 +113,32 @@ export class SQLiteOAuthProvider implements OAuthServerProvider {
 		params: AuthorizationParams,
 		res: Response,
 	): Promise<void> {
+		this.evictExpiredSessions();
+		if (this.pendingSessions.size >= MAX_PENDING_SESSIONS) {
+			// Evict the oldest entry to enforce the size cap
+			const oldest = this.pendingSessions.keys().next().value;
+			if (oldest) this.pendingSessions.delete(oldest);
+		}
 		const sessionId = randomBytes(16).toString("hex");
-		this.pendingSessions.set(sessionId, { client, params });
+		this.pendingSessions.set(sessionId, {
+			client,
+			params,
+			expiresAt: Date.now() + PENDING_SESSION_TTL_MS,
+		});
 		res.redirect(`${this.issuerUrl}/consent?session=${sessionId}`);
+	}
+
+	private evictExpiredSessions(): void {
+		const now = Date.now();
+		for (const [id, session] of this.pendingSessions) {
+			if (session.expiresAt <= now) this.pendingSessions.delete(id);
+		}
 	}
 
 	popPendingSession(id: string): PendingSession | undefined {
 		const session = this.pendingSessions.get(id);
 		this.pendingSessions.delete(id);
+		if (!session || session.expiresAt <= Date.now()) return undefined;
 		return session;
 	}
 
@@ -182,54 +204,59 @@ export class SQLiteOAuthProvider implements OAuthServerProvider {
 			throw new InvalidGrantError("Authorization code expired");
 		if (row.client_id !== client.client_id)
 			throw new InvalidGrantError("Client mismatch");
-
-		this.db
-			.prepare("DELETE FROM auth_codes WHERE code = ?")
-			.run(authorizationCode);
-
 		if (redirectUri && redirectUri !== row.redirect_uri)
 			throw new InvalidGrantError("Redirect URI mismatch");
 
+		// All validations pass — consume code and mint tokens atomically
 		const storedScopes: string[] = JSON.parse(row.scopes);
-		const familyId = randomUUID();
-		const accessTok = randomBytes(32).toString("hex");
-		const refreshTok = randomBytes(32).toString("hex");
-		const now = Math.floor(Date.now() / 1000);
 		const resourceStr = resource?.toString() ?? row.resource ?? null;
 
-		this.db
-			.prepare(
-				`INSERT INTO access_tokens (token, client_id, scopes, expires_at, resource, family_id)
-				VALUES (?, ?, ?, ?, ?, ?)`,
-			)
-			.run(
-				accessTok,
-				client.client_id,
-				JSON.stringify(storedScopes),
-				now + ACCESS_TOKEN_TTL,
-				resourceStr,
-				familyId,
-			);
-		this.db
-			.prepare(
-				`INSERT INTO refresh_tokens (token, client_id, scopes, expires_at, family_id)
-				VALUES (?, ?, ?, ?, ?)`,
-			)
-			.run(
-				refreshTok,
-				client.client_id,
-				JSON.stringify(storedScopes),
-				now + REFRESH_TOKEN_TTL,
-				familyId,
-			);
+		return this.db.transaction((): OAuthTokens => {
+			const deleted = this.db
+				.prepare("DELETE FROM auth_codes WHERE code = ?")
+				.run(authorizationCode);
+			if (deleted.changes === 0)
+				throw new InvalidGrantError("Authorization code already used");
 
-		return {
-			access_token: accessTok,
-			token_type: "bearer",
-			expires_in: ACCESS_TOKEN_TTL,
-			scope: storedScopes.join(" "),
-			refresh_token: refreshTok,
-		};
+			const familyId = randomUUID();
+			const accessTok = randomBytes(32).toString("hex");
+			const refreshTok = randomBytes(32).toString("hex");
+			const now = Math.floor(Date.now() / 1000);
+
+			this.db
+				.prepare(
+					`INSERT INTO access_tokens (token, client_id, scopes, expires_at, resource, family_id)
+					VALUES (?, ?, ?, ?, ?, ?)`,
+				)
+				.run(
+					accessTok,
+					client.client_id,
+					JSON.stringify(storedScopes),
+					now + ACCESS_TOKEN_TTL,
+					resourceStr,
+					familyId,
+				);
+			this.db
+				.prepare(
+					`INSERT INTO refresh_tokens (token, client_id, scopes, expires_at, family_id)
+					VALUES (?, ?, ?, ?, ?)`,
+				)
+				.run(
+					refreshTok,
+					client.client_id,
+					JSON.stringify(storedScopes),
+					now + REFRESH_TOKEN_TTL,
+					familyId,
+				);
+
+			return {
+				access_token: accessTok,
+				token_type: "bearer",
+				expires_in: ACCESS_TOKEN_TTL,
+				scope: storedScopes.join(" "),
+				refresh_token: refreshTok,
+			};
+		})();
 	}
 
 	async exchangeRefreshToken(
@@ -238,45 +265,50 @@ export class SQLiteOAuthProvider implements OAuthServerProvider {
 		scopes?: string[],
 		_resource?: URL,
 	): Promise<OAuthTokens> {
-		const row = this.db
-			.prepare(
-				`SELECT client_id, scopes, expires_at, family_id
-				FROM refresh_tokens WHERE token = ?`,
-			)
-			.get(refreshToken) as
-			| {
-					client_id: string;
-					scopes: string;
-					expires_at: number;
-					family_id: string;
-			  }
-			| undefined;
+		// Load, validate, rotate — all inside one transaction to prevent
+		// concurrent use of the same refresh token producing multiple new tokens.
+		return this.db.transaction((): OAuthTokens => {
+			const row = this.db
+				.prepare(
+					`SELECT client_id, scopes, expires_at, family_id
+					FROM refresh_tokens WHERE token = ?`,
+				)
+				.get(refreshToken) as
+				| {
+						client_id: string;
+						scopes: string;
+						expires_at: number;
+						family_id: string;
+				  }
+				| undefined;
 
-		if (!row) throw new InvalidGrantError("Refresh token not found");
-		if (row.expires_at < Math.floor(Date.now() / 1000))
-			throw new InvalidGrantError("Refresh token expired");
-		if (row.client_id !== client.client_id)
-			throw new InvalidGrantError("Client mismatch");
+			if (!row) throw new InvalidGrantError("Refresh token not found");
+			if (row.expires_at < Math.floor(Date.now() / 1000))
+				throw new InvalidGrantError("Refresh token expired");
+			if (row.client_id !== client.client_id)
+				throw new InvalidGrantError("Client mismatch");
 
-		const storedScopes: string[] = JSON.parse(row.scopes);
-		if (scopes?.length) {
-			const invalid = scopes.filter((s) => !storedScopes.includes(s));
-			if (invalid.length)
-				throw new InvalidScopeError(
-					`Requested scopes exceed granted scopes: ${invalid.join(", ")}`,
-				);
-		}
+			const storedScopes: string[] = JSON.parse(row.scopes);
+			if (scopes?.length) {
+				const invalid = scopes.filter((s) => !storedScopes.includes(s));
+				if (invalid.length)
+					throw new InvalidScopeError(
+						`Requested scopes exceed granted scopes: ${invalid.join(", ")}`,
+					);
+			}
 
-		const effectiveScopes = scopes?.length ? scopes : storedScopes;
-		const now = Math.floor(Date.now() / 1000);
-		const newFamilyId = row.family_id; // same family
-		const accessTok = randomBytes(32).toString("hex");
-		const refreshTok = randomBytes(32).toString("hex");
+			const effectiveScopes = scopes?.length ? scopes : storedScopes;
+			const now = Math.floor(Date.now() / 1000);
+			const familyId = row.family_id;
+			const accessTok = randomBytes(32).toString("hex");
+			const refreshTok = randomBytes(32).toString("hex");
 
-		const rotate = this.db.transaction(() => {
-			this.db
+			const deleted = this.db
 				.prepare("DELETE FROM refresh_tokens WHERE token = ?")
 				.run(refreshToken);
+			if (deleted.changes === 0)
+				throw new InvalidGrantError("Refresh token already used");
+
 			this.db
 				.prepare(
 					`INSERT INTO access_tokens (token, client_id, scopes, expires_at, resource, family_id)
@@ -288,7 +320,7 @@ export class SQLiteOAuthProvider implements OAuthServerProvider {
 					JSON.stringify(effectiveScopes),
 					now + ACCESS_TOKEN_TTL,
 					null,
-					newFamilyId,
+					familyId,
 				);
 			this.db
 				.prepare(
@@ -300,18 +332,17 @@ export class SQLiteOAuthProvider implements OAuthServerProvider {
 					client.client_id,
 					JSON.stringify(effectiveScopes),
 					now + REFRESH_TOKEN_TTL,
-					newFamilyId,
+					familyId,
 				);
-		});
-		rotate();
 
-		return {
-			access_token: accessTok,
-			token_type: "bearer",
-			expires_in: ACCESS_TOKEN_TTL,
-			scope: effectiveScopes.join(" "),
-			refresh_token: refreshTok,
-		};
+			return {
+				access_token: accessTok,
+				token_type: "bearer",
+				expires_in: ACCESS_TOKEN_TTL,
+				scope: effectiveScopes.join(" "),
+				refresh_token: refreshTok,
+			};
+		})();
 	}
 
 	async verifyAccessToken(token: string): Promise<AuthInfo> {

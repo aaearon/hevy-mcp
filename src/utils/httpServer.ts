@@ -147,6 +147,8 @@ export function startOAuthHttpServer(
 	const app = express();
 	const sessions = new Map<string, Session>();
 
+	app.use(express.json({ limit: MAX_BODY_BYTES }));
+
 	app.use(
 		mcpAuthRouter({
 			provider,

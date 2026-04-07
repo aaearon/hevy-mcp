@@ -2,16 +2,27 @@ import { timingSafeEqual } from "node:crypto";
 import express from "express";
 import type { SQLiteOAuthProvider } from "./oauthProvider.js";
 
+const SESSION_ID_RE = /^[0-9a-f]{32}$/i;
+
+function escapeHtml(s: string): string {
+	return s
+		.replace(/&/g, "&amp;")
+		.replace(/</g, "&lt;")
+		.replace(/>/g, "&gt;")
+		.replace(/"/g, "&quot;")
+		.replace(/'/g, "&#x27;");
+}
+
 function renderForm(sessionId: string, title: string, error?: string): string {
 	const errorHtml = error
-		? `<p style="color:#dc2626;margin:0 0 12px;">${error}</p>`
+		? `<p style="color:#dc2626;margin:0 0 12px;">${escapeHtml(error)}</p>`
 		: "";
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1"/>
-<title>${title}</title>
+<title>${escapeHtml(title)}</title>
 <style>
 *{box-sizing:border-box}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
@@ -30,10 +41,10 @@ button:hover{background:#2563eb}
 </head>
 <body>
 <div class="card">
-<h1>${title}</h1>
+<h1>${escapeHtml(title)}</h1>
 ${errorHtml}
 <form method="POST" action="/consent">
-<input type="hidden" name="session" value="${sessionId}"/>
+<input type="hidden" name="session" value="${escapeHtml(sessionId)}"/>
 <label for="password">Password</label>
 <input type="password" id="password" name="password" autofocus/>
 <button type="submit">Authorize</button>
@@ -51,8 +62,12 @@ export function createConsentRouter(
 
 	router.get("/consent", (req, res) => {
 		const session = req.query["session"];
-		if (!session || typeof session !== "string") {
-			res.status(400).send("Missing session parameter");
+		if (
+			!session ||
+			typeof session !== "string" ||
+			!SESSION_ID_RE.test(session)
+		) {
+			res.status(400).send("Invalid or missing session parameter");
 			return;
 		}
 		res.send(renderForm(session, title));
@@ -67,8 +82,8 @@ export function createConsentRouter(
 			const provided =
 				typeof req.body?.password === "string" ? req.body.password : "";
 
-			if (!session) {
-				res.status(400).send("Missing session parameter");
+			if (!session || !SESSION_ID_RE.test(session)) {
+				res.status(400).send("Invalid or missing session parameter");
 				return;
 			}
 
@@ -78,12 +93,10 @@ export function createConsentRouter(
 				return;
 			}
 
-			// Constant-time comparison with same-length buffers
-			const a = Buffer.alloc(expected.length);
-			Buffer.from(expected).copy(a);
-			const b = Buffer.alloc(expected.length);
-			Buffer.from(provided).copy(b);
-			if (!timingSafeEqual(a, b)) {
+			// Exact-length constant-time comparison — different lengths always fail
+			const a = Buffer.from(expected);
+			const b = Buffer.from(provided);
+			if (a.length !== b.length || !timingSafeEqual(a, b)) {
 				res.send(renderForm(session, title, "Incorrect password"));
 				return;
 			}

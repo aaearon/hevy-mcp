@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import express from "express";
 import request from "supertest";
 import { mcpAuthRouter } from "@modelcontextprotocol/sdk/server/auth/router.js";
@@ -6,8 +6,22 @@ import { requireBearerAuth } from "@modelcontextprotocol/sdk/server/auth/middlew
 import { SQLiteOAuthProvider } from "./oauthProvider.js";
 
 process.env.OAUTH_DB_PATH = ":memory:";
-// Required to allow HTTP issuer URLs in tests
-process.env.MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL = "true";
+
+let originalAllowInsecure: string | undefined;
+
+beforeAll(() => {
+	originalAllowInsecure = process.env.MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL;
+	process.env.MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL = "true";
+});
+
+afterAll(() => {
+	if (originalAllowInsecure === undefined) {
+		delete process.env.MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL;
+	} else {
+		process.env.MCP_DANGEROUSLY_ALLOW_INSECURE_ISSUER_URL =
+			originalAllowInsecure;
+	}
+});
 
 function makeApp() {
 	const provider = new SQLiteOAuthProvider("http://localhost");

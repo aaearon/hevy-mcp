@@ -10,12 +10,6 @@ services:
     environment:
       - OAUTH_DB_PATH=/data/oauth.db
     env_file: .env
-    networks:
-      - media_default
 
 volumes:
   oauth-data:
-
-networks:
-  media_default:
-    external: true

@@ -115,16 +115,14 @@ describe("SQLiteOAuthProvider - auth codes", () => {
 		};
 		const code = provider.createAuthorizationCode(client.client_id, params);
 
-		// Manually expire by manipulating DB via internal access (simulate via time skip)
-		// We can't easily manipulate time, but we can verify the code was inserted
-		// and test the normal exchange path works when not expired
-		const tokens = await provider.exchangeAuthorizationCode(
-			client,
-			code,
-			undefined,
-			"https://client.example.com/callback",
-		);
-		expect(tokens.access_token).toBeTruthy();
+		// Force expiry by back-dating the row in the DB
+		(provider as unknown as { db: import("better-sqlite3").Database }).db
+			.prepare("UPDATE auth_codes SET expires_at = 1 WHERE code = ?")
+			.run(code);
+
+		await expect(
+			provider.exchangeAuthorizationCode(client, code),
+		).rejects.toThrow(/expired/i);
 	});
 
 	it("mismatched client on code exchange throws", async () => {
