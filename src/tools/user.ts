@@ -1,10 +1,8 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
 import type { UserInfoResponse } from "../generated/client/types/index.js";
 import { withErrorHandling } from "../utils/error-handler.js";
-import {
-	createEmptyResponse,
-	createJsonResponse,
-} from "../utils/response-formatter.js";
+import { createJsonResponse } from "../utils/response-formatter.js";
 import { readOnlyAnnotations } from "../utils/tool-annotations.js";
 import type { InferToolParams } from "../utils/tool-helpers.js";
 
@@ -20,11 +18,15 @@ export function registerUserTools(
 	const getUserInfoSchema = {} as const;
 	type GetUserInfoParams = InferToolParams<typeof getUserInfoSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-user-info",
-		"Get the authenticated user's account info, including user ID, display name, and public profile URL. Useful for verifying which account the API key belongs to.",
-		getUserInfoSchema,
-		readOnlyAnnotations("Get User Info"),
+		{
+			description:
+				"Get the authenticated user's account info, including user ID, display name, and public profile URL. Useful for verifying which account the API key belongs to.",
+			inputSchema: getUserInfoSchema,
+			outputSchema: { user: z.record(z.string(), z.unknown()) },
+			annotations: readOnlyAnnotations("Get User Info"),
+		},
 		withErrorHandling(async (_args: GetUserInfoParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -33,11 +35,9 @@ export function registerUserTools(
 			}
 			const data: UserInfoResponse = await hevyClient.getUserInfo();
 			if (!data?.data) {
-				return createEmptyResponse(
-					"No user info found for the authenticated user",
-				);
+				throw new Error("No user info found for the authenticated user");
 			}
-			return createJsonResponse(data.data);
+			return createJsonResponse({ user: data.data });
 		}, "get-user-info"),
 	);
 }

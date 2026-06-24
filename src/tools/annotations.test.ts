@@ -46,8 +46,8 @@ const UPDATE_TOOLS = [
 const DESTRUCTIVE_TOOLS = ["delete-webhook-subscription"] as const;
 
 function registerAllTools() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
 	registerWorkoutTools(server, null);
 	registerRoutineTools(server, null);
 	registerTemplateTools(server, null);
@@ -55,7 +55,7 @@ function registerAllTools() {
 	registerBodyMeasurementTools(server, null);
 	registerUserTools(server, null);
 	registerWebhookTools(server, null);
-	return tool;
+	return registerTool;
 }
 
 function getAnnotations(
@@ -66,8 +66,8 @@ function getAnnotations(
 	if (!match) {
 		throw new Error(`Tool ${name} was not registered`);
 	}
-	// server.tool(name, description, schema, annotations, handler)
-	return match[3] as ToolAnnotations;
+	// server.registerTool(name, { description, inputSchema, outputSchema, annotations }, handler)
+	return (match[1] as { annotations: ToolAnnotations }).annotations;
 }
 
 describe("tool annotations", () => {

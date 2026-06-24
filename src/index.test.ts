@@ -33,6 +33,7 @@ vi.mock("@modelcontextprotocol/sdk/server/mcp.js", () => {
 	class MockMcpServer {
 		connect = vi.fn().mockResolvedValue(undefined);
 		tool = vi.fn();
+		registerTool = vi.fn();
 	}
 
 	return {

@@ -9,9 +9,9 @@ type HevyClient = ReturnType<
 >;
 
 function createMockServer() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
-	return { server, tool };
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
+	return { server, tool: registerTool };
 }
 
 function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
@@ -21,6 +21,7 @@ function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
 	}
 	const handler = match.at(-1) as (args: Record<string, unknown>) => Promise<{
 		content: Array<{ type: string; text: string }>;
+		structuredContent?: Record<string, unknown>;
 		isError?: boolean;
 	}>;
 	return { handler };
@@ -78,11 +79,34 @@ describe("registerFolderTools", () => {
 			pageSize: 5,
 		});
 
-		const parsed = JSON.parse(response.content[0].text) as unknown[];
-		expect(parsed).toEqual([formatRoutineFolder(folder)]);
+		const parsed = JSON.parse(response.content[0].text) as {
+			routineFolders: unknown[];
+		};
+		expect(parsed).toEqual({ routineFolders: [formatRoutineFolder(folder)] });
+		expect(response.structuredContent).toEqual({
+			routineFolders: [formatRoutineFolder(folder)],
+		});
 	});
 
-	it("get-routine-folder returns an empty response when folder is not found", async () => {
+	it("get-routine-folders returns an empty list when no folders are found", async () => {
+		const { server, tool } = createMockServer();
+		const hevyClient: HevyClient = {
+			getRoutineFolders: vi.fn().mockResolvedValue({ routine_folders: [] }),
+		} as unknown as HevyClient;
+
+		registerFolderTools(server, hevyClient);
+		const { handler } = getToolRegistration(tool, "get-routine-folders");
+
+		const response = await handler({ page: 1, pageSize: 5 });
+
+		const parsed = JSON.parse(response.content[0].text) as {
+			routineFolders: unknown[];
+		};
+		expect(parsed).toEqual({ routineFolders: [] });
+		expect(response.structuredContent).toEqual({ routineFolders: [] });
+	});
+
+	it("get-routine-folder returns an error response when folder is not found", async () => {
 		const { server, tool } = createMockServer();
 		const hevyClient: HevyClient = {
 			getRoutineFolder: vi.fn().mockResolvedValue(null),
@@ -93,7 +117,8 @@ describe("registerFolderTools", () => {
 
 		const response = await handler({ folderId: "missing-id" });
 		expect(hevyClient.getRoutineFolder).toHaveBeenCalledWith("missing-id");
-		expect(response.content[0]?.text).toBe(
+		expect(response.isError).toBe(true);
+		expect(response.content[0]?.text).toContain(
 			"Routine folder with ID missing-id not found",
 		);
 	});
@@ -124,7 +149,12 @@ describe("registerFolderTools", () => {
 			},
 		});
 
-		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(formatRoutineFolder(folder));
+		const parsed = JSON.parse(response.content[0].text) as {
+			routineFolder: unknown;
+		};
+		expect(parsed).toEqual({ routineFolder: formatRoutineFolder(folder) });
+		expect(response.structuredContent).toEqual({
+			routineFolder: formatRoutineFolder(folder),
+		});
 	});
 });

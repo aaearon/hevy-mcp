@@ -8,11 +8,11 @@ import type {
 	RoutineFolder,
 } from "../generated/client/types/index.js";
 import { withErrorHandling } from "../utils/error-handler.js";
-import { formatRoutineFolder } from "../utils/formatters.js";
 import {
-	createEmptyResponse,
-	createJsonResponse,
-} from "../utils/response-formatter.js";
+	formatRoutineFolder,
+	formattedRoutineFolderSchema,
+} from "../utils/formatters.js";
+import { createJsonResponse } from "../utils/response-formatter.js";
 import {
 	createAnnotations,
 	readOnlyAnnotations,
@@ -40,11 +40,15 @@ export function registerFolderTools(
 		typeof getRoutineFoldersSchema
 	>;
 
-	server.tool(
+	server.registerTool(
 		"get-routine-folders",
-		"Get a paginated list of your routine folders, including both default and custom folders. Useful for organizing and browsing your workout routines.",
-		getRoutineFoldersSchema,
-		readOnlyAnnotations("Get Routine Folders"),
+		{
+			description:
+				"Get a paginated list of your routine folders, including both default and custom folders. Useful for organizing and browsing your workout routines.",
+			inputSchema: getRoutineFoldersSchema,
+			outputSchema: { routineFolders: z.array(formattedRoutineFolderSchema) },
+			annotations: readOnlyAnnotations("Get Routine Folders"),
+		},
 		withErrorHandling(async (args: GetRoutineFoldersParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -58,18 +62,12 @@ export function registerFolderTools(
 			});
 
 			// Process routine folders to extract relevant information
-			const folders =
+			const routineFolders =
 				data?.routine_folders?.map((folder: RoutineFolder) =>
 					formatRoutineFolder(folder),
 				) || [];
 
-			if (folders.length === 0) {
-				return createEmptyResponse(
-					"No routine folders found for the specified parameters",
-				);
-			}
-
-			return createJsonResponse(folders);
+			return createJsonResponse({ routineFolders });
 		}, "get-routine-folders"),
 	);
 
@@ -79,11 +77,15 @@ export function registerFolderTools(
 	} as const;
 	type GetRoutineFolderParams = InferToolParams<typeof getRoutineFolderSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-routine-folder",
-		"Get complete details of a specific routine folder by its ID, including name, creation date, and associated routines.",
-		getRoutineFolderSchema,
-		readOnlyAnnotations("Get Routine Folder"),
+		{
+			description:
+				"Get complete details of a specific routine folder by its ID, including name, creation date, and associated routines.",
+			inputSchema: getRoutineFolderSchema,
+			outputSchema: { routineFolder: formattedRoutineFolderSchema },
+			annotations: readOnlyAnnotations("Get Routine Folder"),
+		},
 		withErrorHandling(async (args: GetRoutineFolderParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -95,13 +97,11 @@ export function registerFolderTools(
 				await hevyClient.getRoutineFolder(folderId);
 
 			if (!data) {
-				return createEmptyResponse(
-					`Routine folder with ID ${folderId} not found`,
-				);
+				throw new Error(`Routine folder with ID ${folderId} not found`);
 			}
 
-			const folder = formatRoutineFolder(data);
-			return createJsonResponse(folder);
+			const routineFolder = formatRoutineFolder(data);
+			return createJsonResponse({ routineFolder });
 		}, "get-routine-folder"),
 	);
 
@@ -113,11 +113,15 @@ export function registerFolderTools(
 		typeof createRoutineFolderSchema
 	>;
 
-	server.tool(
+	server.registerTool(
 		"create-routine-folder",
-		"Create a new routine folder in your Hevy account. Requires a name for the folder. Returns the full folder details including the new folder ID.",
-		createRoutineFolderSchema,
-		createAnnotations("Create Routine Folder"),
+		{
+			description:
+				"Create a new routine folder in your Hevy account. Requires a name for the folder. Returns the full folder details including the new folder ID.",
+			inputSchema: createRoutineFolderSchema,
+			outputSchema: { routineFolder: formattedRoutineFolderSchema },
+			annotations: createAnnotations("Create Routine Folder"),
+		},
 		withErrorHandling(async (args: CreateRoutineFolderParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -133,16 +137,13 @@ export function registerFolderTools(
 				});
 
 			if (!data) {
-				return createEmptyResponse(
+				throw new Error(
 					"Failed to create routine folder: Server returned no data",
 				);
 			}
 
-			const folder = formatRoutineFolder(data);
-			return createJsonResponse(folder, {
-				pretty: true,
-				indent: 2,
-			});
+			const routineFolder = formatRoutineFolder(data);
+			return createJsonResponse({ routineFolder });
 		}, "create-routine-folder"),
 	);
 }

@@ -7,6 +7,12 @@ export interface McpToolResponse {
 		type: "text";
 		text: string;
 	}>;
+	/**
+	 * Machine-readable structured payload mirroring the text content. Only set
+	 * for object payloads, since the MCP spec requires structuredContent to be a
+	 * JSON object. Tools that declare an outputSchema must return this.
+	 */
+	structuredContent?: Record<string, unknown>;
 }
 
 /**
@@ -34,7 +40,7 @@ export function createJsonResponse(
 		? JSON.stringify(data, null, options.indent)
 		: JSON.stringify(data);
 
-	return {
+	const response: McpToolResponse = {
 		content: [
 			{
 				type: "text" as const,
@@ -42,6 +48,16 @@ export function createJsonResponse(
 			},
 		],
 	};
+
+	// structuredContent must be a JSON object per the MCP spec, so only attach
+	// it for plain objects (not arrays or primitives). Tools that wrap their
+	// payload in a named key (e.g. { workouts: [...] }) get the structured
+	// channel; this also satisfies output-schema validation when declared.
+	if (data !== null && typeof data === "object" && !Array.isArray(data)) {
+		response.structuredContent = data as Record<string, unknown>;
+	}
+
+	return response;
 }
 
 /**
