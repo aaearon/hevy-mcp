@@ -163,3 +163,44 @@ describe("Server entry", () => {
 		});
 	});
 });
+
+describe("Sentry opt-in initialization", () => {
+	beforeEach(() => {
+		vi.resetModules();
+		process.env = { ...originalEnv };
+	});
+
+	afterEach(() => {
+		process.env = { ...originalEnv };
+		vi.resetModules();
+	});
+
+	it("does not initialize Sentry when SENTRY_DSN is unset", async () => {
+		delete process.env.SENTRY_DSN;
+		const sentry = await import("@sentry/node");
+		await import("./index.js");
+		expect(sentry.init).not.toHaveBeenCalled();
+	});
+
+	it("initializes Sentry with the provided SENTRY_DSN", async () => {
+		process.env.SENTRY_DSN = "https://public@o0.ingest.sentry.io/0";
+		const sentry = await import("@sentry/node");
+		await import("./index.js");
+		expect(sentry.init).toHaveBeenCalledWith(
+			expect.objectContaining({
+				dsn: "https://public@o0.ingest.sentry.io/0",
+				sendDefaultPii: false,
+			}),
+		);
+	});
+
+	it("honors the SENTRY_TRACES_SAMPLE_RATE override", async () => {
+		process.env.SENTRY_DSN = "https://public@o0.ingest.sentry.io/0";
+		process.env.SENTRY_TRACES_SAMPLE_RATE = "0.25";
+		const sentry = await import("@sentry/node");
+		await import("./index.js");
+		expect(sentry.init).toHaveBeenCalledWith(
+			expect.objectContaining({ tracesSampleRate: 0.25 }),
+		);
+	});
+});

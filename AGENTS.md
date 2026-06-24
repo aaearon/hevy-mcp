@@ -146,6 +146,12 @@ HEVY_API_KEY=your_hevy_api_key_here
 - Integration tests will fail (by design)
 - API client functionality cannot be tested
 
+### Optional Environment Variables
+
+- `SENTRY_DSN` - Opt-in. Sentry telemetry is off by default; set this to your own Sentry project DSN to enable error/performance monitoring. When unset, `@sentry/node` is never initialized and all instrumentation is a no-op.
+- `SENTRY_RELEASE` - Release identifier reported to Sentry (default: `name@version`).
+- `SENTRY_TRACES_SAMPLE_RATE` - Fraction of transactions traced, 0.0–1.0 (default: `1.0`).
+
 ### Node.js Version
 
 - **Supported:** Node.js >= 26
