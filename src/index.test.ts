@@ -1,3 +1,4 @@
+import * as Sentry from "@sentry/node";
 import * as stdioModule from "@modelcontextprotocol/sdk/server/stdio.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import createServer, { configSchema, runServer } from "./index.js";
@@ -5,6 +6,12 @@ import { createClient } from "./utils/hevyClient.js";
 
 const originalEnv = { ...process.env };
 const originalArgv = [...process.argv];
+const TEST_KEY_HMAC_SHA256 =
+	"2cb0b5f95a4652a38a004b9767aa14cea59feb62eb9252ef5fe7f64afd6b6b27";
+const TEST_API_KEY_HMAC_SHA256 =
+	"0eefd4f47c434138f560075be1eedfca27256a782534f3f254781d736cbd468c";
+const CLI_KEY_HMAC_SHA256 =
+	"85a3f127af4cea435cd358405c5298016946cc3f4e196552c2f1e435c2c6f1b3";
 
 vi.mock("./utils/hevyClient.js", () => ({
 	createClient: vi.fn().mockReturnValue({ mockedClient: true }),
@@ -12,7 +19,14 @@ vi.mock("./utils/hevyClient.js", () => ({
 
 vi.mock("@sentry/node", () => ({
 	init: vi.fn(),
+	setUser: vi.fn(),
 	wrapMcpServerWithSentry: vi.fn((server) => server),
+	startSpan: vi.fn((_, callback) =>
+		callback({
+			setAttribute: vi.fn(),
+			setStatus: vi.fn(),
+		}),
+	),
 }));
 
 vi.mock("@modelcontextprotocol/sdk/server/mcp.js", () => {
@@ -65,6 +79,19 @@ describe("Server entry", () => {
 	it("creates an MCP server instance", () => {
 		const server = createServer({ config: { apiKey: "test-key" } });
 		expect(server).toBeDefined();
+		expect(Sentry.startSpan).toHaveBeenCalledWith(
+			expect.objectContaining({ name: "mcp.server.build" }),
+			expect.any(Function),
+		);
+	});
+
+	it("sets the Sentry user ID to an HMAC-SHA-256 fingerprint of the API key", () => {
+		createServer({ config: { apiKey: "test-key" } });
+
+		expect(Sentry.setUser).toHaveBeenCalledWith({ id: TEST_KEY_HMAC_SHA256 });
+		expect(JSON.stringify(vi.mocked(Sentry.setUser).mock.calls)).not.toContain(
+			"test-key",
+		);
 	});
 
 	describe("runServer", () => {
@@ -80,8 +107,19 @@ describe("Server entry", () => {
 				"test-api-key",
 				"https://api.hevyapp.com",
 			);
+			expect(Sentry.setUser).toHaveBeenCalledWith({
+				id: TEST_API_KEY_HMAC_SHA256,
+			});
+			expect(
+				JSON.stringify(vi.mocked(Sentry.setUser).mock.calls),
+			).not.toContain("test-api-key");
 			const anyStdioModule = stdioModule as { __transports?: unknown[] };
 			expect(anyStdioModule.__transports?.length).toBeGreaterThan(0);
+			const spanNames = vi
+				.mocked(Sentry.startSpan)
+				.mock.calls.map(([options]) => (options as { name?: string }).name);
+			expect(spanNames).toContain("mcp.server.run");
+			expect(spanNames).toContain("mcp.server.connect");
 		});
 
 		it("prefers CLI --hevy-api-key argument over environment variable", async () => {
@@ -96,6 +134,13 @@ describe("Server entry", () => {
 				"cli-key",
 				"https://api.hevyapp.com",
 			);
+			expect(Sentry.setUser).toHaveBeenCalledWith({ id: CLI_KEY_HMAC_SHA256 });
+			expect(
+				JSON.stringify(vi.mocked(Sentry.setUser).mock.calls),
+			).not.toContain("cli-key");
+			expect(
+				JSON.stringify(vi.mocked(Sentry.setUser).mock.calls),
+			).not.toContain("env-key");
 		});
 
 		it("exits the process when no API key is provided", async () => {

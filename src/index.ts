@@ -1,4 +1,5 @@
 import * as Sentry from "@sentry/node";
+import { createHmac } from "node:crypto";
 
 declare const __HEVY_MCP_NAME__: string | undefined;
 declare const __HEVY_MCP_VERSION__: string | undefined;
@@ -45,13 +46,25 @@ import { registerBodyMeasurementTools } from "./tools/body-measurements.js";
 import { registerFolderTools } from "./tools/folders.js";
 import { registerRoutineTools } from "./tools/routines.js";
 import { registerTemplateTools } from "./tools/templates.js";
+import { registerUserTools } from "./tools/user.js";
 import { registerWebhookTools } from "./tools/webhooks.js";
 import { registerWorkoutTools } from "./tools/workouts.js";
 import { assertApiKey, assertIssuerUrl, parseConfig } from "./utils/config.js";
 import { startHttpServer, startOAuthHttpServer } from "./utils/httpServer.js";
 import { createClient } from "./utils/hevyClient.js";
+import { createInstrumentedStdioTransport } from "./utils/stdio-observability.js";
 
 const HEVY_API_BASEURL = "https://api.hevyapp.com";
+
+const SENTRY_USER_ID_CONTEXT = "hevy-mcp:sentry-user-id:v1";
+
+function fingerprintApiKey(apiKey: string) {
+	// HMAC-SHA-256 gives Sentry a deterministic pseudonymous user ID without
+	// sending, logging, or storing the raw Hevy API key.
+	return createHmac("sha256", apiKey)
+		.update(SENTRY_USER_ID_CONTEXT)
+		.digest("hex");
+}
 
 const serverConfigSchema = z.object({
 	apiKey: z
@@ -64,23 +77,56 @@ export const configSchema = serverConfigSchema;
 type ServerConfig = z.infer<typeof serverConfigSchema>;
 
 function buildServer(apiKey: string) {
-	const baseServer = new McpServer({
-		name,
-		version,
-	});
-	const server = Sentry.wrapMcpServerWithSentry(baseServer);
+	return Sentry.startSpan(
+		{
+			name: "mcp.server.build",
+			op: "mcp.lifecycle.build",
+			attributes: {
+				"mcp.server.name": name,
+				"mcp.server.version": version,
+				"mcp.transport": "stdio",
+			},
+		},
+		() => {
+			Sentry.setUser({ id: fingerprintApiKey(apiKey) });
 
-	const hevyClient = createClient(apiKey, HEVY_API_BASEURL);
-	console.error("Hevy client initialized with API key");
+			const baseServer = new McpServer({
+				name,
+				version,
+			});
+			const server = Sentry.wrapMcpServerWithSentry(baseServer);
 
-	registerWorkoutTools(server, hevyClient);
-	registerRoutineTools(server, hevyClient);
-	registerTemplateTools(server, hevyClient);
-	registerFolderTools(server, hevyClient);
-	registerBodyMeasurementTools(server, hevyClient);
-	registerWebhookTools(server, hevyClient);
+			const hevyClient = Sentry.startSpan(
+				{
+					name: "mcp.hevy-client.initialize",
+					op: "mcp.lifecycle.client.init",
+				},
+				() => createClient(apiKey, HEVY_API_BASEURL),
+			);
+			console.error("Hevy client initialized with API key");
 
-	return server;
+			Sentry.startSpan(
+				{
+					name: "mcp.tools.register",
+					op: "mcp.lifecycle.tools.register",
+					attributes: {
+						"mcp.tools.count": 7,
+					},
+				},
+				() => {
+					registerWorkoutTools(server, hevyClient);
+					registerRoutineTools(server, hevyClient);
+					registerTemplateTools(server, hevyClient);
+					registerFolderTools(server, hevyClient);
+					registerBodyMeasurementTools(server, hevyClient);
+					registerUserTools(server, hevyClient);
+					registerWebhookTools(server, hevyClient);
+				},
+			);
+
+			return server;
+		},
+	);
 }
 
 export default function createServer({ config }: { config: ServerConfig }) {
@@ -93,30 +139,55 @@ export async function runServer() {
 	const args = process.argv.slice(2);
 	const cfg = parseConfig(args, process.env);
 
-	if (cfg.transport === "http+oauth") {
-		assertApiKey(cfg.apiKey);
-		assertIssuerUrl(cfg.issuerUrl);
-		const port = cfg.port ?? 3000;
-		console.error(`Starting MCP server in HTTP+OAuth mode on port ${port}`);
-		await startOAuthHttpServer(
-			() => buildServer(cfg.apiKey!),
-			port,
-			cfg.issuerUrl!,
-			"Hevy MCP Authorization",
-		);
-		return;
-	}
+	await Sentry.startSpan(
+		{
+			name: "mcp.server.run",
+			op: "mcp.lifecycle.run",
+			attributes: {
+				"mcp.transport": cfg.transport ?? "stdio",
+			},
+		},
+		async () => {
+			if (cfg.transport === "http+oauth") {
+				assertApiKey(cfg.apiKey);
+				assertIssuerUrl(cfg.issuerUrl);
+				const port = cfg.port ?? 3000;
+				console.error(`Starting MCP server in HTTP+OAuth mode on port ${port}`);
+				await startOAuthHttpServer(
+					() => buildServer(cfg.apiKey!),
+					port,
+					cfg.issuerUrl!,
+					"Hevy MCP Authorization",
+				);
+				return;
+			}
 
-	assertApiKey(cfg.apiKey);
+			assertApiKey(cfg.apiKey);
 
-	if (cfg.transport === "http") {
-		const port = cfg.port ?? 3000;
-		console.error(`Starting MCP server in HTTP mode on port ${port}`);
-		await startHttpServer(() => buildServer(cfg.apiKey!), port);
-	} else {
-		console.error("Starting MCP server in stdio mode");
-		const server = buildServer(cfg.apiKey!);
-		const transport = new StdioServerTransport();
-		await server.connect(transport);
-	}
+			if (cfg.transport === "http") {
+				const port = cfg.port ?? 3000;
+				console.error(`Starting MCP server in HTTP mode on port ${port}`);
+				await startHttpServer(() => buildServer(cfg.apiKey!), port);
+			} else {
+				console.error("Starting MCP server in stdio mode");
+				const server = buildServer(cfg.apiKey!);
+				const transport = createInstrumentedStdioTransport(
+					new StdioServerTransport(),
+				);
+
+				await Sentry.startSpan(
+					{
+						name: "mcp.server.connect",
+						op: "mcp.lifecycle.connect",
+						attributes: {
+							"mcp.transport": "stdio",
+						},
+					},
+					async () => {
+						await server.connect(transport);
+					},
+				);
+			}
+		},
+	);
 }

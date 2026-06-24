@@ -17,6 +17,7 @@ A Model Context Protocol (MCP) server implementation that interfaces with the [H
 - [Installation](#installation)
   - [Claude Desktop Configuration](#claude-desktop-configuration)
   - [Cursor Configuration](#cursor-configuration)
+  - [Other MCP Clients (via add-mcp)](#other-mcp-clients-via-add-mcp)
 - [Why hevy-mcp?](#why-hevy-mcp)
 - [Configuration](#configuration)
 - [Available MCP Tools](#available-mcp-tools)
@@ -40,15 +41,15 @@ Pick the workflow that fits your setup:
 
 | Scenario              | Command                                                                | Requirements               |
 | :-------------------- | :--------------------------------------------------------------------- | :------------------------- |
-| **One-off stdio run** | `HEVY_API_KEY=sk_live... npx -y hevy-mcp`                              | Node.js ≥ 24, Hevy API key |
-| **HTTP mode**         | `HEVY_API_KEY=sk_live... npx -y hevy-mcp --transport=http --port=3000` | Node.js ≥ 24, Hevy API key |
+| **One-off stdio run** | `HEVY_API_KEY=sk_live... npx -y hevy-mcp`                              | Node.js ≥ 26, Hevy API key |
+| **HTTP mode**         | `HEVY_API_KEY=sk_live... npx -y hevy-mcp --transport=http --port=3000` | Node.js ≥ 26, Hevy API key |
 | **Local development** | `npm install && npm run build && npm start`                            | `.env` with `HEVY_API_KEY` |
 
 ---
 
 ## 🛠️ Prerequisites
 
-- **Node.js**: v24 or higher (strongly recommended to use the exact version pinned in `.nvmrc`).
+- **Node.js**: v26 or higher (strongly recommended to use the exact version pinned in `.nvmrc`).
 - **npm**: v10 or higher.
 - **Hevy API key**: Required for all operations (available with Hevy PRO).
 
@@ -122,13 +123,23 @@ Add this server under `"mcpServers"` in `~/.cursor/mcp.json`:
 }
 ```
 
+### Other MCP Clients (via add-mcp)
+
+For a generic setup flow across MCP clients, use [`add-mcp`](https://github.com/neon-solutions/add-mcp):
+
+```bash
+npx add-mcp hevy-mcp --env "HEVY_API_KEY=secret"
+```
+
+This bootstraps the `hevy-mcp` entry in your client config without manual JSON edits.
+
 ---
 
 ## ✨ Why hevy-mcp?
 
 - 🚀 **High Performance**: Built with the **Oxc** toolchain (`oxlint`/`oxfmt`) for near-instant linting and formatting.
 - 🛡️ **Type Safety**: Fully type-safe implementation using **Zod** and **Kubb**-generated API clients.
-- 📉 **Observability**: Built-in **Sentry** monitoring for error tracking and performance profiling.
+- 📉 **Observability**: Built-in **Sentry** monitoring for error tracking, lifecycle and tool tracing, and stdio parse diagnostics.
 - ⚡ **Optimized**: Includes in-memory caching for exercise templates to reduce API latency.
 
 ---
@@ -147,7 +158,12 @@ HEVY_API_KEY=your_hevy_api_key_here
 
 ### 📡 Sentry Monitoring
 
-`hevy-mcp` includes Sentry monitoring to observe errors and usage in production. It initializes `@sentry/node` with tracing enabled and PII collection disabled by default.
+`hevy-mcp` includes Sentry monitoring to observe errors and usage in production. It initializes `@sentry/node` with tracing enabled and PII collection disabled by default. Recent observability changes also add:
+
+- lifecycle spans around server build, run, and stdio connect
+- per-tool execution spans plus captured handler exceptions
+- stdio parse diagnostics, including leading UTF-8 BOM stripping and invalid JSON context
+- a deterministic pseudonymous Sentry user ID derived from `HEVY_API_KEY`, so the raw key is never sent to Sentry
 
 ---
 
@@ -190,13 +206,15 @@ Docker-based workflows are retired. The provided `Dockerfile` now exits with a m
 
 ## 🛠️ Available MCP Tools
 
-| Category      | Tools                                                                                                        |
-| :------------ | :----------------------------------------------------------------------------------------------------------- |
-| **Workouts**  | `get-workouts`, `get-workout`, `create-workout`, `update-workout`, `get-workout-count`, `get-workout-events` |
-| **Routines**  | `get-routines`, `get-routine-by-id`, `create-routine`, `update-routine`                                      |
-| **Templates** | `get-exercise-templates`, `get-exercise-template`, `search-exercise-templates`                               |
-| **Folders**   | `get-routine-folders`, `get-routine-folder`, `create-routine-folder`                                         |
-| **Webhooks**  | `get-webhook-subscription`, `create-webhook-subscription`, `delete-webhook-subscription`                     |
+| Category              | Tools                                                                                                                              |
+| :-------------------- | :--------------------------------------------------------------------------------------------------------------------------------- |
+| **Workouts**          | `get-workouts`, `get-workout`, `create-workout`, `update-workout`, `get-workout-count`, `get-workout-events`                       |
+| **Routines**          | `get-routines`, `get-routine`, `create-routine`, `update-routine`                                                                  |
+| **Templates**         | `get-exercise-templates`, `get-exercise-template`, `search-exercise-templates`, `create-exercise-template`, `get-exercise-history` |
+| **Folders**           | `get-routine-folders`, `get-routine-folder`, `create-routine-folder`                                                               |
+| **Body Measurements** | `get-body-measurements`, `get-body-measurement`, `create-body-measurement`, `update-body-measurement`                              |
+| **User**              | `get-user-info`                                                                                                                    |
+| **Webhooks**          | `get-webhook-subscription`, `create-webhook-subscription`, `delete-webhook-subscription`                                           |
 
 ---
 
