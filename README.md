@@ -160,11 +160,11 @@ HEVY_API_KEY=your_hevy_api_key_here
 
 `hevy-mcp` can report errors and usage to Sentry, but it is **disabled by default** — no telemetry is sent unless you opt in. To enable it, point `SENTRY_DSN` at your own Sentry project; when the variable is unset, `@sentry/node` is never initialized and all instrumentation is a no-op.
 
-| Variable                     | Default | Description                                                              |
-| :--------------------------- | :------ | :----------------------------------------------------------------------- |
-| `SENTRY_DSN`                 | _unset_ | Your Sentry project DSN. Required to enable Sentry; unset = fully off.   |
-| `SENTRY_RELEASE`             | `name@version` | Release identifier reported to Sentry.                            |
-| `SENTRY_TRACES_SAMPLE_RATE`  | `1.0`   | Fraction of transactions traced (0.0–1.0).                               |
+| Variable                    | Default        | Description                                                            |
+| :-------------------------- | :------------- | :--------------------------------------------------------------------- |
+| `SENTRY_DSN`                | _unset_        | Your Sentry project DSN. Required to enable Sentry; unset = fully off. |
+| `SENTRY_RELEASE`            | `name@version` | Release identifier reported to Sentry.                                 |
+| `SENTRY_TRACES_SAMPLE_RATE` | `1.0`          | Fraction of transactions traced (0.0–1.0).                             |
 
 When enabled it initializes `@sentry/node` with tracing and PII collection disabled, and adds:
 
