@@ -13,13 +13,10 @@ import type {
 	PutV1WorkoutsWorkoutid200,
 } from "../generated/client/types/index.js";
 import { withErrorHandling } from "../utils/error-handler.js";
-import { formatWorkout } from "../utils/formatters.js";
+import { formatWorkout, formattedWorkoutSchema } from "../utils/formatters.js";
 import type { HevyClient } from "../utils/hevyClient.js";
 import { parseJsonArray } from "../utils/json-parser.js";
-import {
-	createEmptyResponse,
-	createJsonResponse,
-} from "../utils/response-formatter.js";
+import { createJsonResponse } from "../utils/response-formatter.js";
 import {
 	createAnnotations,
 	readOnlyAnnotations,
@@ -41,11 +38,15 @@ export function registerWorkoutTools(
 	} as const;
 	type GetWorkoutsParams = InferToolParams<typeof getWorkoutsSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-workouts",
-		"Get a paginated list of workouts. Returns workout details including title, description, start/end times, and exercises performed. Results are ordered from newest to oldest.",
-		getWorkoutsSchema,
-		readOnlyAnnotations("Get Workouts"),
+		{
+			description:
+				"Get a paginated list of workouts. Returns workout details including title, description, start/end times, and exercises performed. Results are ordered from newest to oldest.",
+			inputSchema: getWorkoutsSchema,
+			outputSchema: { workouts: z.array(formattedWorkoutSchema) },
+			annotations: readOnlyAnnotations("Get Workouts"),
+		},
 		withErrorHandling(async (args: GetWorkoutsParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -61,13 +62,7 @@ export function registerWorkoutTools(
 			const workouts =
 				data?.workouts?.map((workout) => formatWorkout(workout)) || [];
 
-			if (workouts.length === 0) {
-				return createEmptyResponse(
-					"No workouts found for the specified parameters",
-				);
-			}
-
-			return createJsonResponse(workouts);
+			return createJsonResponse({ workouts });
 		}, "get-workouts"),
 	);
 
@@ -77,11 +72,15 @@ export function registerWorkoutTools(
 	} as const;
 	type GetWorkoutParams = InferToolParams<typeof getWorkoutSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-workout",
-		"Get complete details of a specific workout by ID. Returns all workout information including title, description, start/end times, and detailed exercise data.",
-		getWorkoutSchema,
-		readOnlyAnnotations("Get Workout"),
+		{
+			description:
+				"Get complete details of a specific workout by ID. Returns all workout information including title, description, start/end times, and detailed exercise data.",
+			inputSchema: getWorkoutSchema,
+			outputSchema: { workout: formattedWorkoutSchema },
+			annotations: readOnlyAnnotations("Get Workout"),
+		},
 		withErrorHandling(async (args: GetWorkoutParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -93,20 +92,24 @@ export function registerWorkoutTools(
 				await hevyClient.getWorkout(workoutId);
 
 			if (!data) {
-				return createEmptyResponse(`Workout with ID ${workoutId} not found`);
+				throw new Error(`Workout with ID ${workoutId} not found`);
 			}
 
 			const workout = formatWorkout(data);
-			return createJsonResponse(workout);
+			return createJsonResponse({ workout });
 		}, "get-workout"),
 	);
 
 	// Get workout count
-	server.tool(
+	server.registerTool(
 		"get-workout-count",
-		"Get the total number of workouts on the account. Useful for pagination or statistics.",
-		{},
-		readOnlyAnnotations("Get Workout Count"),
+		{
+			description:
+				"Get the total number of workouts on the account. Useful for pagination or statistics.",
+			inputSchema: {},
+			outputSchema: { count: z.number() },
+			annotations: readOnlyAnnotations("Get Workout Count"),
+		},
 		withErrorHandling(async () => {
 			if (!hevyClient) {
 				throw new Error(
@@ -127,11 +130,15 @@ export function registerWorkoutTools(
 	} as const;
 	type GetWorkoutEventsParams = InferToolParams<typeof getWorkoutEventsSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-workout-events",
-		"Retrieve a paged list of workout events (updates or deletes) since a given date. Events are ordered from newest to oldest. The intention is to allow clients to keep their local cache of workouts up to date without having to fetch the entire list of workouts.",
-		getWorkoutEventsSchema,
-		readOnlyAnnotations("Get Workout Events"),
+		{
+			description:
+				"Retrieve a paged list of workout events (updates or deletes) since a given date. Events are ordered from newest to oldest. The intention is to allow clients to keep their local cache of workouts up to date without having to fetch the entire list of workouts.",
+			inputSchema: getWorkoutEventsSchema,
+			outputSchema: { events: z.array(z.unknown()) },
+			annotations: readOnlyAnnotations("Get Workout Events"),
+		},
 		withErrorHandling(async (args: GetWorkoutEventsParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -147,13 +154,7 @@ export function registerWorkoutTools(
 
 			const events = data?.events || [];
 
-			if (events.length === 0) {
-				return createEmptyResponse(
-					`No workout events found for the specified parameters since ${since}`,
-				);
-			}
-
-			return createJsonResponse(events);
+			return createJsonResponse({ events });
 		}, "get-workout-events"),
 	);
 
@@ -193,11 +194,15 @@ export function registerWorkoutTools(
 	} as const;
 	type CreateWorkoutParams = InferToolParams<typeof createWorkoutSchema>;
 
-	server.tool(
+	server.registerTool(
 		"create-workout",
-		"Create a new workout in your Hevy account. Requires title, start/end times, and at least one exercise with sets. Returns the complete workout details upon successful creation including the newly assigned workout ID.",
-		createWorkoutSchema,
-		createAnnotations("Create Workout"),
+		{
+			description:
+				"Create a new workout in your Hevy account. Requires title, start/end times, and at least one exercise with sets. Returns the complete workout details upon successful creation including the newly assigned workout ID.",
+			inputSchema: createWorkoutSchema,
+			outputSchema: { workout: formattedWorkoutSchema },
+			annotations: createAnnotations("Create Workout"),
+		},
 		withErrorHandling(async (args: CreateWorkoutParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -235,16 +240,11 @@ export function registerWorkoutTools(
 				await hevyClient.createWorkout(requestBody);
 
 			if (!data) {
-				return createEmptyResponse(
-					"Failed to create workout: Server returned no data",
-				);
+				throw new Error("Failed to create workout: Server returned no data");
 			}
 
 			const workout = formatWorkout(data);
-			return createJsonResponse(workout, {
-				pretty: true,
-				indent: 2,
-			});
+			return createJsonResponse({ workout });
 		}, "create-workout"),
 	);
 
@@ -285,11 +285,15 @@ export function registerWorkoutTools(
 	} as const;
 	type UpdateWorkoutParams = InferToolParams<typeof updateWorkoutSchema>;
 
-	server.tool(
+	server.registerTool(
 		"update-workout",
-		"Update an existing workout by ID. You can modify the title, description, start/end times, privacy setting, and exercise data. Returns the updated workout with all changes applied.",
-		updateWorkoutSchema,
-		updateAnnotations("Update Workout"),
+		{
+			description:
+				"Update an existing workout by ID. You can modify the title, description, start/end times, privacy setting, and exercise data. Returns the updated workout with all changes applied.",
+			inputSchema: updateWorkoutSchema,
+			outputSchema: { workout: formattedWorkoutSchema },
+			annotations: updateAnnotations("Update Workout"),
+		},
 		withErrorHandling(async (args: UpdateWorkoutParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -336,16 +340,11 @@ export function registerWorkoutTools(
 			);
 
 			if (!data) {
-				return createEmptyResponse(
-					`Failed to update workout with ID ${workoutId}`,
-				);
+				throw new Error(`Failed to update workout with ID ${workoutId}`);
 			}
 
 			const workout = formatWorkout(data);
-			return createJsonResponse(workout, {
-				pretty: true,
-				indent: 2,
-			});
+			return createJsonResponse({ workout });
 		}, "update-workout-operation"),
 	);
 }

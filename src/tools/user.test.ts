@@ -7,9 +7,9 @@ type HevyClient = ReturnType<
 >;
 
 function createMockServer() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
-	return { server, tool };
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
+	return { server, tool: registerTool };
 }
 
 function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
@@ -19,6 +19,7 @@ function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
 	}
 	const handler = match.at(-1) as (args: Record<string, unknown>) => Promise<{
 		content: Array<{ type: string; text: string }>;
+		structuredContent?: Record<string, unknown>;
 		isError?: boolean;
 	}>;
 	return { handler };
@@ -62,10 +63,11 @@ describe("registerUserTools", () => {
 
 		expect(hevyClient.getUserInfo).toHaveBeenCalled();
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(userInfo);
+		expect(parsed).toEqual({ user: userInfo });
+		expect(response.structuredContent).toEqual({ user: userInfo });
 	});
 
-	it("get-user-info returns empty response when no user info is found", async () => {
+	it("get-user-info returns an error response when no user info is found", async () => {
 		const { server, tool } = createMockServer();
 		const hevyClient: HevyClient = {
 			getUserInfo: vi.fn().mockResolvedValue({}),
@@ -75,7 +77,8 @@ describe("registerUserTools", () => {
 		const { handler } = getToolRegistration(tool, "get-user-info");
 
 		const response = await handler({});
-		expect(response.content[0]?.text).toBe(
+		expect(response.isError).toBe(true);
+		expect(response.content[0]?.text).toContain(
 			"No user info found for the authenticated user",
 		);
 	});

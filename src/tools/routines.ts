@@ -15,12 +15,9 @@ import type {
 	Routine,
 } from "../generated/client/types/index.js";
 import { withErrorHandling } from "../utils/error-handler.js";
-import { formatRoutine } from "../utils/formatters.js";
+import { formatRoutine, formattedRoutineSchema } from "../utils/formatters.js";
 import { parseJsonArray } from "../utils/json-parser.js";
-import {
-	createEmptyResponse,
-	createJsonResponse,
-} from "../utils/response-formatter.js";
+import { createJsonResponse } from "../utils/response-formatter.js";
 import {
 	createAnnotations,
 	readOnlyAnnotations,
@@ -169,11 +166,15 @@ export function registerRoutineTools(
 	} as const;
 	type GetRoutinesParams = InferToolParams<typeof getRoutinesSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-routines",
-		"Get a paginated list of your workout routines, including custom and default routines. Useful for browsing or searching your available routines.",
-		getRoutinesSchema,
-		readOnlyAnnotations("Get Routines"),
+		{
+			description:
+				"Get a paginated list of your workout routines, including custom and default routines. Useful for browsing or searching your available routines.",
+			inputSchema: getRoutinesSchema,
+			outputSchema: { routines: z.array(formattedRoutineSchema) },
+			annotations: readOnlyAnnotations("Get Routines"),
+		},
 		withErrorHandling(async (args: GetRoutinesParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -190,13 +191,7 @@ export function registerRoutineTools(
 			const routines =
 				data?.routines?.map((routine: Routine) => formatRoutine(routine)) || [];
 
-			if (routines.length === 0) {
-				return createEmptyResponse(
-					"No routines found for the specified parameters",
-				);
-			}
-
-			return createJsonResponse(routines);
+			return createJsonResponse({ routines });
 		}, "get-routines"),
 	);
 
@@ -206,11 +201,15 @@ export function registerRoutineTools(
 	} as const;
 	type GetRoutineParams = InferToolParams<typeof getRoutineSchema>;
 
-	server.tool(
+	server.registerTool(
 		"get-routine",
-		"Get a routine by its ID using the direct endpoint. Returns all details for the specified routine.",
-		getRoutineSchema,
-		readOnlyAnnotations("Get Routine"),
+		{
+			description:
+				"Get a routine by its ID using the direct endpoint. Returns all details for the specified routine.",
+			inputSchema: getRoutineSchema,
+			outputSchema: { routine: formattedRoutineSchema },
+			annotations: readOnlyAnnotations("Get Routine"),
+		},
 		withErrorHandling(async (args: GetRoutineParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -222,10 +221,10 @@ export function registerRoutineTools(
 				String(routineId),
 			);
 			if (!data || !data.routine) {
-				return createEmptyResponse(`Routine with ID ${routineId} not found`);
+				throw new Error(`Routine with ID ${routineId} not found`);
 			}
 			const routine = formatRoutine(data.routine);
-			return createJsonResponse(routine);
+			return createJsonResponse({ routine });
 		}, "get-routine"),
 	);
 
@@ -264,11 +263,15 @@ export function registerRoutineTools(
 	} as const;
 	type CreateRoutineParams = InferToolParams<typeof createRoutineSchema>;
 
-	server.tool(
+	server.registerTool(
 		"create-routine",
-		"Create a new workout routine in your Hevy account. Requires a title and at least one exercise with sets. Optionally assign to a folder. Returns the full routine details including the new routine ID.",
-		createRoutineSchema,
-		createAnnotations("Create Routine"),
+		{
+			description:
+				"Create a new workout routine in your Hevy account. Requires a title and at least one exercise with sets. Optionally assign to a folder. Returns the full routine details including the new routine ID.",
+			inputSchema: createRoutineSchema,
+			outputSchema: { routine: formattedRoutineSchema },
+			annotations: createAnnotations("Create Routine"),
+		},
 		withErrorHandling(async (args: CreateRoutineParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -330,16 +333,17 @@ export function registerRoutineTools(
 			// it so `formatRoutine` receives the actual routine object.
 			const created = unwrapMutationResponse(data);
 			if (!created) {
-				return createEmptyResponse(
-					"Failed to create routine: Server returned no data",
-				);
+				throw new Error("Failed to create routine: Server returned no data");
 			}
 
 			const routine = formatRoutine(created);
-			const response = createJsonResponse(routine, {
-				pretty: true,
-				indent: 2,
-			});
+			const response = createJsonResponse(
+				{ routine },
+				{
+					pretty: true,
+					indent: 2,
+				},
+			);
 
 			if (usesRepRanges) {
 				response.content.push({
@@ -387,11 +391,15 @@ export function registerRoutineTools(
 	} as const;
 	type UpdateRoutineParams = InferToolParams<typeof updateRoutineSchema>;
 
-	server.tool(
+	server.registerTool(
 		"update-routine",
-		"Update an existing routine by ID. You can modify the title, notes, and exercise configurations. Returns the updated routine with all changes applied.",
-		updateRoutineSchema,
-		updateAnnotations("Update Routine"),
+		{
+			description:
+				"Update an existing routine by ID. You can modify the title, notes, and exercise configurations. Returns the updated routine with all changes applied.",
+			inputSchema: updateRoutineSchema,
+			outputSchema: { routine: formattedRoutineSchema },
+			annotations: updateAnnotations("Update Routine"),
+		},
 		withErrorHandling(async (args: UpdateRoutineParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -452,16 +460,17 @@ export function registerRoutineTools(
 			// The Hevy API returns { routine: [Routine] } on PUT as well.
 			const updated = unwrapMutationResponse(data);
 			if (!updated) {
-				return createEmptyResponse(
-					`Failed to update routine with ID ${routineId}`,
-				);
+				throw new Error(`Failed to update routine with ID ${routineId}`);
 			}
 
 			const routine = formatRoutine(updated);
-			const response = createJsonResponse(routine, {
-				pretty: true,
-				indent: 2,
-			});
+			const response = createJsonResponse(
+				{ routine },
+				{
+					pretty: true,
+					indent: 2,
+				},
+			);
 
 			if (usesRepRanges) {
 				response.content.push({

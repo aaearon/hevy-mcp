@@ -144,16 +144,24 @@ describe("Hevy MCP Server Integration Tests", () => {
 			}
 			const responseData = JSON.parse(firstContent.text);
 
-			// Validate the response schema with Zod
-			GetWorkoutsResponseSchema.parse(responseData);
-
+			// Responses are now wrapped in a named key with a matching outputSchema,
+			// and the SDK validates structuredContent against it on the way out.
 			expect(responseData).toBeDefined();
-			expect(Array.isArray(responseData)).toBe(true);
-			expect(responseData.length).toBeGreaterThan(0);
-			expect(responseData[0].id).toBeDefined();
-			expect(responseData[0].title).toBeDefined();
-			expect(responseData[0].title.length).toBeGreaterThanOrEqual(3); // title is formatted as title
-			expect(responseData[0].createdAt).toBeDefined(); // start_time is formatted as date
+			expect(Array.isArray(responseData)).toBe(false);
+			const workouts = responseData.workouts;
+
+			// Validate the workouts array with Zod
+			GetWorkoutsResponseSchema.parse(workouts);
+
+			// structuredContent mirrors the text content
+			expect(result.structuredContent).toEqual(responseData);
+
+			expect(Array.isArray(workouts)).toBe(true);
+			expect(workouts.length).toBeGreaterThan(0);
+			expect(workouts[0].id).toBeDefined();
+			expect(workouts[0].title).toBeDefined();
+			expect(workouts[0].title.length).toBeGreaterThanOrEqual(3); // title is formatted as title
+			expect(workouts[0].createdAt).toBeDefined(); // start_time is formatted as date
 		});
 	});
 });

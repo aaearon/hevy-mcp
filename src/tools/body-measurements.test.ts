@@ -10,9 +10,9 @@ type HevyClient = ReturnType<
 >;
 
 function createMockServer() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
-	return { server, tool };
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
+	return { server, tool: registerTool };
 }
 
 function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
@@ -20,9 +20,11 @@ function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
 	if (!match) {
 		throw new Error(`Tool ${name} was not registered`);
 	}
-	const schema = match[2] as Record<string, z.ZodTypeAny>;
+	const config = match[1] as { inputSchema: Record<string, z.ZodTypeAny> };
+	const schema = config.inputSchema;
 	const handler = match.at(-1) as (args: Record<string, unknown>) => Promise<{
 		content: Array<{ type: string; text: string }>;
+		structuredContent?: Record<string, unknown>;
 		isError?: boolean;
 	}>;
 	return { schema, handler };
@@ -96,11 +98,18 @@ describe("registerBodyMeasurementTools", () => {
 			pageSize: 10,
 		});
 
-		const parsed = JSON.parse(response.content[0].text) as unknown[];
-		expect(parsed).toEqual([formatBodyMeasurement(sampleMeasurement)]);
+		const parsed = JSON.parse(response.content[0].text) as {
+			measurements: unknown[];
+		};
+		expect(parsed).toEqual({
+			measurements: [formatBodyMeasurement(sampleMeasurement)],
+		});
+		expect(response.structuredContent).toEqual({
+			measurements: [formatBodyMeasurement(sampleMeasurement)],
+		});
 	});
 
-	it("get-body-measurements returns empty response when no measurements found", async () => {
+	it("get-body-measurements returns empty list when no measurements found", async () => {
 		const { server, tool } = createMockServer();
 		const hevyClient: HevyClient = {
 			getBodyMeasurements: vi.fn().mockResolvedValue({ body_measurements: [] }),
@@ -110,9 +119,11 @@ describe("registerBodyMeasurementTools", () => {
 		const { handler } = getToolRegistration(tool, "get-body-measurements");
 
 		const response = await handler({ page: 1, pageSize: 10 });
-		expect(response.content[0]?.text).toBe(
-			"No body measurements found for the specified parameters",
-		);
+		expect(response.structuredContent).toEqual({ measurements: [] });
+		const parsed = JSON.parse(response.content[0].text) as {
+			measurements: unknown[];
+		};
+		expect(parsed).toEqual({ measurements: [] });
 	});
 
 	it("get-body-measurement returns a formatted measurement for a given date", async () => {
@@ -128,11 +139,18 @@ describe("registerBodyMeasurementTools", () => {
 
 		expect(hevyClient.getBodyMeasurement).toHaveBeenCalledWith("2025-03-25");
 
-		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(formatBodyMeasurement(sampleMeasurement));
+		const parsed = JSON.parse(response.content[0].text) as {
+			measurement: unknown;
+		};
+		expect(parsed).toEqual({
+			measurement: formatBodyMeasurement(sampleMeasurement),
+		});
+		expect(response.structuredContent).toEqual({
+			measurement: formatBodyMeasurement(sampleMeasurement),
+		});
 	});
 
-	it("get-body-measurement returns empty response when not found", async () => {
+	it("get-body-measurement throws when not found", async () => {
 		const { server, tool } = createMockServer();
 		const hevyClient: HevyClient = {
 			getBodyMeasurement: vi.fn().mockResolvedValue(null),
@@ -142,7 +160,8 @@ describe("registerBodyMeasurementTools", () => {
 		const { handler } = getToolRegistration(tool, "get-body-measurement");
 
 		const response = await handler({ date: "2099-01-01" });
-		expect(response.content[0]?.text).toBe(
+		expect(response.isError).toBe(true);
+		expect(response.content[0]?.text).toContain(
 			"No body measurement found for date 2099-01-01",
 		);
 	});
