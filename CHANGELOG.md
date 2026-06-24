@@ -1,3 +1,71 @@
+## [1.25.12](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.11...v1.25.12) (2026-06-24)
+
+## [1.25.11](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.10...v1.25.11) (2026-06-23)
+
+## [1.25.10](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.9...v1.25.10) (2026-06-23)
+
+## [1.25.9](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.8...v1.25.9) (2026-06-23)
+
+## [1.25.8](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.7...v1.25.8) (2026-06-23)
+
+## [1.25.7](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.6...v1.25.7) (2026-06-23)
+
+## [1.25.6](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.5...v1.25.6) (2026-06-23)
+
+## [1.25.5](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.4...v1.25.5) (2026-06-19)
+
+## [1.25.4](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.3...v1.25.4) (2026-06-19)
+
+
+### Bug Fixes
+
+* remove kubb plugin-client from runtime deps ([#356](https://github.com/chrisdoc/hevy-mcp/issues/356)) ([61077ae](https://github.com/chrisdoc/hevy-mcp/commit/61077ae7942168ef79baf7b8c8454e1dcc2760c7))
+
+## [1.25.3](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.2...v1.25.3) (2026-06-17)
+
+## [1.25.2](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.1...v1.25.2) (2026-06-17)
+
+## [1.25.1](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.0...v1.25.1) (2026-06-17)
+
+# [1.25.0](https://github.com/chrisdoc/hevy-mcp/compare/v1.24.2...v1.25.0) (2026-06-16)
+
+
+### Features
+
+* add MCP lifecycle and stdio parse observability ([#348](https://github.com/chrisdoc/hevy-mcp/issues/348)) ([f7a816b](https://github.com/chrisdoc/hevy-mcp/commit/f7a816baf8c852b7f891b4575fa49dced3806511))
+
+## [1.24.2](https://github.com/chrisdoc/hevy-mcp/compare/v1.24.1...v1.24.2) (2026-06-15)
+
+
+### Bug Fixes
+
+* align sentry release name with project@version pattern ([fa9613f](https://github.com/chrisdoc/hevy-mcp/commit/fa9613f95d6ff6786b354f93e00d310b36c575e6))
+
+## [1.24.1](https://github.com/chrisdoc/hevy-mcp/compare/v1.24.0...v1.24.1) (2026-06-15)
+
+# [1.24.0](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.24...v1.24.0) (2026-06-15)
+
+
+### Features
+
+* fix sentry ([728d9a0](https://github.com/chrisdoc/hevy-mcp/commit/728d9a0da6f7fabd8baa468d36e528bb43a5ed2e))
+
+## [1.23.24](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.23...v1.23.24) (2026-06-15)
+
+## [1.23.23](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.22...v1.23.23) (2026-06-13)
+
+## [1.23.22](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.21...v1.23.22) (2026-06-10)
+
+## [1.23.21](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.20...v1.23.21) (2026-06-09)
+
+## [1.23.20](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.19...v1.23.20) (2026-06-09)
+
+## [1.23.19](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.18...v1.23.19) (2026-06-09)
+
+## [1.23.18](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.17...v1.23.18) (2026-06-04)
+
+## [1.23.17](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.16...v1.23.17) (2026-06-04)
+
 ## [1.23.16](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.15...v1.23.16) (2026-06-03)
 
 ## [1.23.15](https://github.com/chrisdoc/hevy-mcp/compare/v1.23.14...v1.23.15) (2026-06-03)

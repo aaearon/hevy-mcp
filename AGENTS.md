@@ -5,14 +5,22 @@
 ## Project Overview
 
 - **hevy-mcp** is a Model Context Protocol (MCP) server for the Hevy Fitness API, enabling AI agents to manage workouts, routines, exercise templates, and folders via the Hevy API.
-- The codebase is TypeScript (Node.js v24+), with a clear separation between tool implementations (`src/tools/`), generated API clients (`src/generated/`), and utility logic (`src/utils/`).
+- The codebase is TypeScript (Node.js v26+), with a clear separation between tool implementations (`src/tools/`), generated API clients (`src/generated/`), and utility logic (`src/utils/`).
 - API client code is generated from the OpenAPI spec using [Kubb](https://kubb.dev/). **Do not manually edit generated files.**
 - **Type Safety:** The project uses Zod schema inference for type-safe tool parameters, eliminating manual type assertions and ensuring compile-time type safety.
 
 ## Git & Workflow Standards
 
-- **Conventional Commits**: Always use the conventional commit format (e.g., `feat:`, `fix:`, `refactor:`, `build:`, `ci:`, `chore:`, `docs:`, `style:`, `test:`).
+- **Conventional Commits**: AI agents (such as Claude Code, Antigravity, etc.) and developers must always use the conventional commit format (e.g., `feat:`, `fix:`, `refactor:`, `build:`, `ci:`, `chore:`, `docs:`, `style:`, `test:`) for all commits they generate or suggest.
 - **GitHub Squash and Merge**: When using "Squash and Merge" on GitHub, always ensure the **PR Title** (which becomes the final commit title) follows the conventional commit format in **lowercase** (e.g., `refactor: replace biome with oxlint`). This is critical for `semantic-release` to correctly identify version bumps.
+
+## Agent Tool Requirements
+
+### Documentation and Research
+
+- **Context7**: MUST use Context7 for any library and API documentation needs
+- **GitHub Integration**: MUST use the GitHub MCP server for all GitHub interactions and only use `gh` if there is a problem with the personal access token
+- **AI Feedback**: MUST ask Gemini for feedback (about a design, code review, etc.) but remember Gemini has no memory so everything must be provided in the prompt and you must refer to files using the @ syntax
 
 ## Working Effectively
 
@@ -140,7 +148,7 @@ HEVY_API_KEY=your_hevy_api_key_here
 
 ### Node.js Version
 
-- **Supported:** Node.js >= 24
+- **Supported:** Node.js >= 26
 - **Recommended:** Use the exact version pinned in `.nvmrc` (CI uses this exact version)
 - If you use `nvm`, run `nvm use` in the repo root to match `.nvmrc`
 - Use `node --version` to verify current version
@@ -238,6 +246,21 @@ tests/
 ├── integration/       # Integration tests (require API key)
 └── unit tests are co-located with source files (*.test.ts)
 ```
+
+### Client Architecture
+
+The project uses a generated API client via Kubb that creates:
+
+- TypeScript types in `src/generated/client/types/`
+- API methods in `src/generated/client/api/`
+- Zod schemas in `src/generated/client/schemas/`
+- Mock data in `src/generated/client/mocks/`
+
+### Configuration Files
+
+- `kubb.config.ts` - API client generation configuration
+- `oxlint and oxfmt configuration` - Code formatting and linting rules (tabs, 80 char lines, double quotes)
+- `lefthook.yml` - Git hooks for pre-commit formatting and commit message linting
 
 ## Development Patterns
 
@@ -350,6 +373,44 @@ server.tool(
 - **`createJsonResponse(data, options?)`**: Creates JSON-formatted MCP responses
 - **`createTextResponse(text)`**: Creates text-formatted MCP responses
 - **`createEmptyResponse(message)`**: Creates empty responses with messages
+
+## HTTP+OAuth Transport (fork-specific)
+
+The `http+oauth` transport exposes a password-gated OAuth 2.1 authorization server + MCP resource server, compatible with claude.ai Connectors. This is specific to this fork and is not part of upstream `chrisdoc/hevy-mcp`.
+
+Additional environment variables (required for `http+oauth` mode):
+
+- `MCP_ISSUER_URL` - Public base URL of this server (e.g. `https://mcp.example.com`). Also settable via `--issuer-url=URL`.
+- `MCP_AUTH_PASSWORD` - Password shown in the consent form; leave empty to reject all logins.
+- `OAUTH_DB_PATH` - Path to the SQLite database file (default: `./oauth.db`).
+
+Starting the server:
+
+```bash
+MCP_ISSUER_URL=http://localhost:3000 MCP_AUTH_PASSWORD=secret HEVY_API_KEY=xxx \
+  node dist/cli.mjs --transport=http+oauth --port=3000
+```
+
+Verification:
+
+```bash
+# OAuth metadata
+curl http://localhost:3000/.well-known/oauth-authorization-server | jq .
+
+# Unauthenticated request should return 401
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+### Docker Compose
+
+`Dockerfile.oauth` and `docker-compose.yml` provide a self-contained deployment (port 8012 → 8000 inside container). The existing `Dockerfile` stub (which deliberately errors) and `docker.test.ts` are untouched.
+
+```bash
+# Create .env with HEVY_API_KEY, MCP_AUTH_PASSWORD, MCP_ISSUER_URL
+docker compose -f docker-compose.yml build
+docker compose -f docker-compose.yml up -d
+```
 
 ---
 
