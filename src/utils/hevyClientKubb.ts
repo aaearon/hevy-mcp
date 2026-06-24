@@ -1,7 +1,7 @@
 import type {
 	RequestConfig,
 	ResponseConfig,
-} from "@kubb/plugin-client/clients/axios";
+} from "../generated/.kubb/fetch.ts";
 import axios from "axios";
 import * as api from "../generated/client/api";
 import type {
@@ -188,6 +188,10 @@ export function createClient(
 			wrapApi(api.putV1BodyMeasurementsDate)(date, data, headers, {
 				client,
 			}),
+
+		// User
+		getUserInfo: (): ReturnType<typeof api.getV1UserInfo> =>
+			wrapApi(api.getV1UserInfo)(headers, { client }),
 
 		getWebhookSubscription: async (): Promise<unknown> => {
 			throw new Error(
