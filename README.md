@@ -139,7 +139,7 @@ This bootstraps the `hevy-mcp` entry in your client config without manual JSON e
 
 - 🚀 **High Performance**: Built with the **Oxc** toolchain (`oxlint`/`oxfmt`) for near-instant linting and formatting.
 - 🛡️ **Type Safety**: Fully type-safe implementation using **Zod** and **Kubb**-generated API clients.
-- 📉 **Observability**: Built-in **Sentry** monitoring for error tracking, lifecycle and tool tracing, and stdio parse diagnostics.
+- 📉 **Observability**: Optional, opt-in **Sentry** monitoring (set `SENTRY_DSN`) for error tracking, lifecycle and tool tracing, and stdio parse diagnostics.
 - ⚡ **Optimized**: Includes in-memory caching for exercise templates to reduce API latency.
 
 ---
@@ -156,9 +156,17 @@ Supply your Hevy API key via:
 HEVY_API_KEY=your_hevy_api_key_here
 ```
 
-### 📡 Sentry Monitoring
+### 📡 Sentry Monitoring (opt-in)
 
-`hevy-mcp` includes Sentry monitoring to observe errors and usage in production. It initializes `@sentry/node` with tracing enabled and PII collection disabled by default. Recent observability changes also add:
+`hevy-mcp` can report errors and usage to Sentry, but it is **disabled by default** — no telemetry is sent unless you opt in. To enable it, point `SENTRY_DSN` at your own Sentry project; when the variable is unset, `@sentry/node` is never initialized and all instrumentation is a no-op.
+
+| Variable                     | Default | Description                                                              |
+| :--------------------------- | :------ | :----------------------------------------------------------------------- |
+| `SENTRY_DSN`                 | _unset_ | Your Sentry project DSN. Required to enable Sentry; unset = fully off.   |
+| `SENTRY_RELEASE`             | `name@version` | Release identifier reported to Sentry.                            |
+| `SENTRY_TRACES_SAMPLE_RATE`  | `1.0`   | Fraction of transactions traced (0.0–1.0).                               |
+
+When enabled it initializes `@sentry/node` with tracing and PII collection disabled, and adds:
 
 - lifecycle spans around server build, run, and stdio connect
 - per-tool execution spans plus captured handler exceptions

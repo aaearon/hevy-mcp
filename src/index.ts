@@ -26,18 +26,26 @@ const version =
 // or set directly in the environment. No dotenv dependency needed.
 // This avoids stdout pollution that corrupts MCP JSON-RPC communication in stdio mode.
 
-// Sentry monitoring is baked into the built MCP server so usage and errors
-// from users of the published package are captured for observability.
+// Sentry monitoring is opt-in: it only initializes when SENTRY_DSN is set, so
+// neither the published package nor this fork sends any telemetry by default.
+// Point SENTRY_DSN at your own Sentry project to enable error and performance
+// monitoring. When unset, the Sentry.* calls throughout this module are no-ops.
+const sentryDsn = process.env.SENTRY_DSN;
 const sentryRelease = process.env.SENTRY_RELEASE ?? `${name}@${version}`;
-const sentryConfig = {
-	dsn: "https://ce696d8333b507acbf5203eb877bce0f@o4508975499575296.ingest.de.sentry.io/4509049671647312",
-	release: sentryRelease,
-	// Tracing must be enabled for MCP monitoring to work
-	tracesSampleRate: 1.0,
-	sendDefaultPii: false,
-} as const;
+const parsedTracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
+const sentryTracesSampleRate = Number.isFinite(parsedTracesSampleRate)
+	? parsedTracesSampleRate
+	: 1.0;
 
-Sentry.init(sentryConfig);
+if (sentryDsn) {
+	Sentry.init({
+		dsn: sentryDsn,
+		release: sentryRelease,
+		// Tracing must be enabled for MCP monitoring to work
+		tracesSampleRate: sentryTracesSampleRate,
+		sendDefaultPii: false,
+	});
+}
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
