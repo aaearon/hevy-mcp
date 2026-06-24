@@ -10,9 +10,9 @@ type HevyClient = ReturnType<
 >;
 
 function createMockServer() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
-	return { server, tool };
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
+	return { server, tool: registerTool };
 }
 
 function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
@@ -20,9 +20,11 @@ function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
 	if (!match) {
 		throw new Error(`Tool ${name} was not registered`);
 	}
-	const schema = match[2] as Record<string, z.ZodTypeAny>;
+	const config = match[1] as { inputSchema: Record<string, z.ZodTypeAny> };
+	const schema = config.inputSchema;
 	const handler = match.at(-1) as (args: Record<string, unknown>) => Promise<{
 		content: Array<{ type: string; text: string }>;
+		structuredContent?: Record<string, unknown>;
 		isError?: boolean;
 	}>;
 	return { schema, handler };
@@ -81,8 +83,13 @@ describe("registerRoutineTools", () => {
 			pageSize: 5,
 		});
 
-		const parsed = JSON.parse(response.content[0].text) as unknown[];
-		expect(parsed).toEqual([formatRoutine(routine)]);
+		const parsed = JSON.parse(response.content[0].text) as {
+			routines: unknown[];
+		};
+		expect(parsed).toEqual({ routines: [formatRoutine(routine)] });
+		expect(response.structuredContent).toEqual({
+			routines: [formatRoutine(routine)],
+		});
 	});
 
 	it("create-routine forwards non-null supersetId as superset_id", async () => {
@@ -155,7 +162,10 @@ describe("registerRoutineTools", () => {
 		});
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(formatRoutine(routine));
+		expect(parsed).toEqual({ routine: formatRoutine(routine) });
+		expect(response.structuredContent).toEqual({
+			routine: formatRoutine(routine),
+		});
 	});
 
 	it("create-routine maps repRange to rep_range in the request body", async () => {
@@ -432,9 +442,9 @@ describe("registerRoutineTools", () => {
 		);
 
 		expect(response.content).toHaveLength(2);
-		expect(JSON.parse(response.content[0].text)).toEqual(
-			formatRoutine(routine),
-		);
+		expect(JSON.parse(response.content[0].text)).toEqual({
+			routine: formatRoutine(routine),
+		});
 		expect(response.content[1]?.text).toContain("rep ranges");
 		expect(response.content[1]?.text).toContain("issues/261");
 	});
@@ -475,7 +485,7 @@ describe("registerRoutineTools", () => {
 		} as Record<string, unknown>);
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(formatRoutine(routine));
+		expect(parsed).toEqual({ routine: formatRoutine(routine) });
 	});
 
 	it("update-routine unwraps {routine: [...]} mutation response", async () => {
@@ -511,7 +521,7 @@ describe("registerRoutineTools", () => {
 		} as Record<string, unknown>);
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(formatRoutine(routine));
+		expect(parsed).toEqual({ routine: formatRoutine(routine) });
 	});
 
 	it("create-routine omits rep_range from reps-only sets", async () => {
@@ -880,9 +890,9 @@ describe("registerRoutineTools", () => {
 		} as Record<string, unknown>);
 
 		expect(response.content).toHaveLength(2);
-		expect(JSON.parse(response.content[0].text)).toEqual(
-			formatRoutine(routine),
-		);
+		expect(JSON.parse(response.content[0].text)).toEqual({
+			routine: formatRoutine(routine),
+		});
 		expect(response.content[1]?.text).toContain("rep ranges");
 		expect(response.content[1]?.text).toContain("issues/261");
 	});

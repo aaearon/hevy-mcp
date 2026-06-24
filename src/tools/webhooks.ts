@@ -1,10 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { withErrorHandling } from "../utils/error-handler.js";
-import {
-	createEmptyResponse,
-	createJsonResponse,
-} from "../utils/response-formatter.js";
+import { createJsonResponse } from "../utils/response-formatter.js";
 import {
 	createAnnotations,
 	destructiveAnnotations,
@@ -68,11 +65,15 @@ export function registerWebhookTools(
 		typeof getWebhookSubscriptionSchema
 	>;
 
-	server.tool(
+	server.registerTool(
 		"get-webhook-subscription",
-		"Get the current webhook subscription for this account. Returns the webhook URL and auth token if a subscription exists.",
-		getWebhookSubscriptionSchema,
-		readOnlyAnnotations("Get Webhook Subscription"),
+		{
+			description:
+				"Get the current webhook subscription for this account. Returns the webhook URL and auth token if a subscription exists.",
+			inputSchema: getWebhookSubscriptionSchema,
+			outputSchema: { subscription: z.record(z.string(), z.unknown()) },
+			annotations: readOnlyAnnotations("Get Webhook Subscription"),
+		},
 		withErrorHandling(async (_args: GetWebhookSubscriptionParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -86,11 +87,9 @@ export function registerWebhookTools(
 			}
 			const data = await hevyClient.getWebhookSubscription();
 			if (!data) {
-				return createEmptyResponse(
-					"No webhook subscription found for this account",
-				);
+				throw new Error("No webhook subscription found for this account");
 			}
-			return createJsonResponse(data);
+			return createJsonResponse({ subscription: data });
 		}, "get-webhook-subscription"),
 	);
 
@@ -110,11 +109,15 @@ export function registerWebhookTools(
 		typeof createWebhookSubscriptionSchema
 	>;
 
-	server.tool(
+	server.registerTool(
 		"create-webhook-subscription",
-		"Create a new webhook subscription for this account. The webhook will receive POST requests when workouts are created. Your endpoint must respond with 200 OK within 5 seconds.",
-		createWebhookSubscriptionSchema,
-		createAnnotations("Create Webhook Subscription"),
+		{
+			description:
+				"Create a new webhook subscription for this account. The webhook will receive POST requests when workouts are created. Your endpoint must respond with 200 OK within 5 seconds.",
+			inputSchema: createWebhookSubscriptionSchema,
+			outputSchema: { subscription: z.record(z.string(), z.unknown()) },
+			annotations: createAnnotations("Create Webhook Subscription"),
+		},
 		withErrorHandling(async (args: CreateWebhookSubscriptionParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -134,11 +137,11 @@ export function registerWebhookTools(
 				},
 			});
 			if (!data) {
-				return createEmptyResponse(
+				throw new Error(
 					"Failed to create webhook subscription - please check your URL and try again",
 				);
 			}
-			return createJsonResponse(data);
+			return createJsonResponse({ subscription: data });
 		}, "create-webhook-subscription"),
 	);
 
@@ -148,11 +151,15 @@ export function registerWebhookTools(
 		typeof deleteWebhookSubscriptionSchema
 	>;
 
-	server.tool(
+	server.registerTool(
 		"delete-webhook-subscription",
-		"Delete the current webhook subscription for this account. This will stop all webhook notifications.",
-		deleteWebhookSubscriptionSchema,
-		destructiveAnnotations("Delete Webhook Subscription"),
+		{
+			description:
+				"Delete the current webhook subscription for this account. This will stop all webhook notifications.",
+			inputSchema: deleteWebhookSubscriptionSchema,
+			outputSchema: { subscription: z.record(z.string(), z.unknown()) },
+			annotations: destructiveAnnotations("Delete Webhook Subscription"),
+		},
 		withErrorHandling(async (_args: DeleteWebhookSubscriptionParams) => {
 			if (!hevyClient) {
 				throw new Error(
@@ -166,11 +173,11 @@ export function registerWebhookTools(
 			}
 			const data = await hevyClient.deleteWebhookSubscription();
 			if (!data) {
-				return createEmptyResponse(
+				throw new Error(
 					"Failed to delete webhook subscription - no subscription may exist or there was a server error",
 				);
 			}
-			return createJsonResponse(data);
+			return createJsonResponse({ subscription: data });
 		}, "delete-webhook-subscription"),
 	);
 }

@@ -285,18 +285,50 @@ const getRoutinesSchema = {
 // 2. Infer types from schema
 type GetRoutinesParams = InferToolParams<typeof getRoutinesSchema>;
 
-// 3. Use inferred type in handler
-server.tool(
+// 3. Register with inputSchema + outputSchema, return structuredContent
+server.registerTool(
 	"get-routines",
-	"Description...",
-	getRoutinesSchema, // Use the schema constant
+	{
+		description: "Description...",
+		inputSchema: getRoutinesSchema,
+		// outputSchema is a ZodRawShape. The MCP SDK validates the tool's
+		// structuredContent against it at runtime, so the shape MUST match what
+		// createJsonResponse returns (same wrapper key). Reuse the formatted Zod
+		// schemas exported from formatters.ts.
+		outputSchema: { routines: z.array(formattedRoutineSchema) },
+		annotations: readOnlyAnnotations("Get Routines"),
+	},
 	withErrorHandling(async (args: GetRoutinesParams) => {
 		// args is fully typed - no manual assertions needed!
 		const { page, pageSize } = args;
 		// ...
+		// Wrap the payload in a named key so structuredContent is a JSON object.
+		return createJsonResponse({ routines });
 	}, "get-routines"),
 );
 ```
+
+#### Pattern: outputSchema and structuredContent
+
+Tools that return JSON declare an `outputSchema` and return their payload wrapped
+in a named key via `createJsonResponse`, which emits both the text `content` and a
+machine-readable `structuredContent` object. Rules:
+
+- **Wrap payloads in a named key**: `{ workouts: [...] }`, `{ workout: {...} }`.
+  `structuredContent` must be a JSON object, never a bare array.
+- **outputSchema key must equal the createJsonResponse key.** The SDK strictly
+  validates `structuredContent` against `outputSchema` and rejects mismatches.
+- **Use schema-derived types.** `formatters.ts` defines the Zod schemas as the
+  source of truth and derives the `FormattedX` types via `z.infer`, so any drift
+  fails at compile time. Reuse those schemas in `outputSchema`.
+- **Empty lists** return the wrapped empty array (`{ workouts: [] }`), not an
+  empty/text response.
+- **Not-found / failure** paths `throw new Error(...)`; `withErrorHandling` turns
+  them into `isError` responses, which the SDK does not output-validate.
+- **Plain-text tools** (those returning `createTextResponse`) must NOT declare an
+  `outputSchema` (text responses carry no `structuredContent`).
+- `src/tools/output-schema-validation.test.ts` guards every tool's
+  `structuredContent` against its declared `outputSchema`.
 
 **Key Benefits:**
 
@@ -370,7 +402,7 @@ server.tool(
 
 ### Response Formatting (`src/utils/response-formatter.ts`)
 
-- **`createJsonResponse(data, options?)`**: Creates JSON-formatted MCP responses
+- **`createJsonResponse(data, options?)`**: Creates JSON-formatted MCP responses. Also attaches `data` as `structuredContent` when `data` is a plain object (not an array/primitive), satisfying output-schema validation.
 - **`createTextResponse(text)`**: Creates text-formatted MCP responses
 - **`createEmptyResponse(message)`**: Creates empty responses with messages
 

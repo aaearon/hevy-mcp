@@ -18,6 +18,7 @@ describe("Response Formatter", () => {
 						text: JSON.stringify(testData, null, 2),
 					},
 				],
+				structuredContent: testData,
 			});
 		});
 
@@ -32,6 +33,7 @@ describe("Response Formatter", () => {
 						text: JSON.stringify(testData),
 					},
 				],
+				structuredContent: testData,
 			});
 		});
 
@@ -49,6 +51,7 @@ describe("Response Formatter", () => {
 						text: JSON.stringify(testData, null, 4),
 					},
 				],
+				structuredContent: testData,
 			});
 		});
 

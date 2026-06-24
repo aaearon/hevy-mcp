@@ -17,9 +17,9 @@ type HevyClient = ReturnType<
 };
 
 function createMockServer() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
-	return { server, tool };
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
+	return { server, tool: registerTool };
 }
 
 function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
@@ -27,9 +27,11 @@ function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
 	if (!match) {
 		throw new Error(`Tool ${name} was not registered`);
 	}
-	const schema = match[2] as Record<string, unknown>;
+	const config = match[1] as { inputSchema?: Record<string, unknown> };
+	const schema = config.inputSchema ?? {};
 	const handler = match.at(-1) as (args: Record<string, unknown>) => Promise<{
 		content: Array<{ type: string; text: string }>;
+		structuredContent?: Record<string, unknown>;
 		isError?: boolean;
 	}>;
 	return { schema, handler };
@@ -125,7 +127,10 @@ describe("registerWebhookTools", () => {
 		});
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual({ id: "sub-1" });
+		expect(parsed).toEqual({ subscription: { id: "sub-1" } });
+		expect(response.structuredContent).toEqual({
+			subscription: { id: "sub-1" },
+		});
 	});
 
 	it("create-webhook-subscription surfaces API availability errors", async () => {
@@ -173,8 +178,16 @@ describe("registerWebhookTools", () => {
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
 		expect(parsed).toEqual({
-			url: "https://example.com/webhook",
-			authToken: "x",
+			subscription: {
+				url: "https://example.com/webhook",
+				authToken: "x",
+			},
+		});
+		expect(response.structuredContent).toEqual({
+			subscription: {
+				url: "https://example.com/webhook",
+				authToken: "x",
+			},
 		});
 	});
 
@@ -194,6 +207,9 @@ describe("registerWebhookTools", () => {
 		expect(hevyClient.deleteWebhookSubscription).toHaveBeenCalledTimes(1);
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual({ success: true });
+		expect(parsed).toEqual({ subscription: { success: true } });
+		expect(response.structuredContent).toEqual({
+			subscription: { success: true },
+		});
 	});
 });

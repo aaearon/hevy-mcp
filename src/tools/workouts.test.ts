@@ -6,9 +6,9 @@ import type { HevyClient } from "../utils/hevyClient.js";
 import { registerWorkoutTools } from "./workouts.js";
 
 function createMockServer() {
-	const tool = vi.fn();
-	const server = { tool } as unknown as McpServer;
-	return { server, tool };
+	const registerTool = vi.fn();
+	const server = { registerTool } as unknown as McpServer;
+	return { server, tool: registerTool };
 }
 
 function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
@@ -18,6 +18,7 @@ function getToolRegistration(toolSpy: ReturnType<typeof vi.fn>, name: string) {
 	}
 	const handler = match.at(-1) as (args: Record<string, unknown>) => Promise<{
 		content: Array<{ type: string; text: string }>;
+		structuredContent?: Record<string, unknown>;
 		isError?: boolean;
 	}>;
 	return { handler };
@@ -80,11 +81,16 @@ describe("registerWorkoutTools", () => {
 			pageSize: 5,
 		});
 
-		const parsed = JSON.parse(response.content[0].text) as unknown[];
-		expect(parsed).toEqual([formatWorkout(workout)]);
+		const parsed = JSON.parse(response.content[0].text) as {
+			workouts: unknown[];
+		};
+		expect(parsed).toEqual({ workouts: [formatWorkout(workout)] });
+		expect(response.structuredContent).toEqual({
+			workouts: [formatWorkout(workout)],
+		});
 	});
 
-	it("get-workout returns an empty response when workout is not found", async () => {
+	it("get-workout returns an error response when workout is not found", async () => {
 		const { server, tool } = createMockServer();
 		const hevyClient = {
 			getWorkout: vi.fn().mockResolvedValue(null),
@@ -95,7 +101,8 @@ describe("registerWorkoutTools", () => {
 
 		const response = await handler({ workoutId: "missing-id" });
 		expect(hevyClient.getWorkout).toHaveBeenCalledWith("missing-id");
-		expect(response.content[0]?.text).toBe(
+		expect(response.isError).toBe(true);
+		expect(response.content[0]?.text).toContain(
 			"Workout with ID missing-id not found",
 		);
 	});
@@ -224,7 +231,10 @@ describe("registerWorkoutTools", () => {
 		});
 
 		const parsed = JSON.parse(response.content[0].text) as unknown;
-		expect(parsed).toEqual(formatWorkout(createResult));
+		expect(parsed).toEqual({ workout: formatWorkout(createResult) });
+		expect(response.structuredContent).toEqual({
+			workout: formatWorkout(createResult),
+		});
 	});
 
 	it("create-workout does not send routine_id", async () => {

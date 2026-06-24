@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type {
 	BodyMeasurement,
 	ExerciseHistoryEntry,
@@ -7,123 +8,182 @@ import type {
 	Workout,
 } from "../generated/client/types/index.js";
 
-/**
- * Formatted workout set interface
- */
-export interface FormattedWorkoutSet {
-	index: number | undefined;
-	type: string | undefined;
-	weight: number | undefined | null;
-	reps: number | undefined | null;
-	distance: number | undefined | null;
-	duration: number | undefined | null;
-	rpe: number | undefined | null;
-	customMetric: number | undefined | null;
-}
+// Shared field helpers — numeric metrics from the Hevy API are frequently
+// absent (undefined) or explicitly null.
+const nullableNumber = z.number().nullable().optional();
 
 /**
- * Formatted workout exercise interface
+ * Formatted workout set schema
  */
-export interface FormattedWorkoutExercise {
-	index: number | undefined;
-	name: string | undefined;
-	exerciseTemplateId: string | undefined;
-	notes: string | undefined | null;
-	supersetsId: number | undefined | null;
-	sets: FormattedWorkoutSet[] | undefined;
-}
+export const formattedWorkoutSetSchema = z.object({
+	index: z.number().optional(),
+	type: z.string().optional(),
+	weight: nullableNumber,
+	reps: nullableNumber,
+	distance: nullableNumber,
+	duration: nullableNumber,
+	rpe: nullableNumber,
+	customMetric: nullableNumber,
+});
+export type FormattedWorkoutSet = z.infer<typeof formattedWorkoutSetSchema>;
 
 /**
- * Formatted workout interface
+ * Formatted workout exercise schema
  */
-export interface FormattedWorkout {
-	id: string | undefined;
-	title: string | undefined;
-	description: string | undefined | null;
-	startTime: string | number | undefined;
-	endTime: string | number | undefined;
-	createdAt: string | undefined;
-	updatedAt: string | undefined;
-	duration: string;
-	exercises: FormattedWorkoutExercise[] | undefined;
-}
+export const formattedWorkoutExerciseSchema = z.object({
+	index: z.number().optional(),
+	name: z.string().optional(),
+	exerciseTemplateId: z.string().optional(),
+	notes: z.string().nullable().optional(),
+	supersetsId: nullableNumber,
+	sets: z.array(formattedWorkoutSetSchema).optional(),
+});
+export type FormattedWorkoutExercise = z.infer<
+	typeof formattedWorkoutExerciseSchema
+>;
 
 /**
- * Formatted routine set interface
+ * Formatted workout schema
  */
-export interface FormattedRoutineSet {
-	index: number | undefined;
-	type: string | undefined;
-	weight: number | undefined | null;
-	reps: number | undefined | null;
-	distance: number | undefined | null;
-	duration: number | undefined | null;
-	customMetric: number | undefined | null;
-	repRange?: { start?: number | null; end?: number | null } | undefined | null;
-	rpe?: number | undefined | null;
-}
+export const formattedWorkoutSchema = z.object({
+	id: z.string().optional(),
+	title: z.string().optional(),
+	description: z.string().nullable().optional(),
+	startTime: z.union([z.string(), z.number()]).optional(),
+	endTime: z.union([z.string(), z.number()]).optional(),
+	createdAt: z.string().optional(),
+	updatedAt: z.string().optional(),
+	duration: z.string(),
+	exercises: z.array(formattedWorkoutExerciseSchema).optional(),
+});
+export type FormattedWorkout = z.infer<typeof formattedWorkoutSchema>;
 
 /**
- * Formatted routine exercise interface
+ * Formatted routine set schema
  */
-export interface FormattedRoutineExercise {
-	name: string | undefined;
-	index: number | undefined;
-	exerciseTemplateId: string | undefined;
-	notes: string | undefined | null;
-	supersetId: number | undefined | null;
-	restSeconds: string | undefined;
-	sets: FormattedRoutineSet[] | undefined;
-}
+export const formattedRoutineSetSchema = z.object({
+	index: z.number().optional(),
+	type: z.string().optional(),
+	weight: nullableNumber,
+	reps: nullableNumber,
+	distance: nullableNumber,
+	duration: nullableNumber,
+	customMetric: nullableNumber,
+	repRange: z
+		.object({
+			start: z.number().nullable().optional(),
+			end: z.number().nullable().optional(),
+		})
+		.nullable()
+		.optional(),
+	rpe: nullableNumber,
+});
+export type FormattedRoutineSet = z.infer<typeof formattedRoutineSetSchema>;
 
 /**
- * Formatted routine interface
+ * Formatted routine exercise schema
  */
-export interface FormattedRoutine {
-	id: string | undefined;
-	title: string | undefined;
-	folderId: number | undefined | null;
-	createdAt: string | undefined;
-	updatedAt: string | undefined;
-	exercises: FormattedRoutineExercise[] | undefined;
-}
+export const formattedRoutineExerciseSchema = z.object({
+	name: z.string().optional(),
+	index: z.number().optional(),
+	exerciseTemplateId: z.string().optional(),
+	notes: z.string().nullable().optional(),
+	supersetId: nullableNumber,
+	restSeconds: z.string().optional(),
+	sets: z.array(formattedRoutineSetSchema).optional(),
+});
+export type FormattedRoutineExercise = z.infer<
+	typeof formattedRoutineExerciseSchema
+>;
 
 /**
- * Formatted routine folder interface
+ * Formatted routine schema
  */
-export interface FormattedRoutineFolder {
-	id: number | undefined;
-	title: string | undefined;
-	createdAt: string | undefined;
-	updatedAt: string | undefined;
-}
+export const formattedRoutineSchema = z.object({
+	id: z.string().optional(),
+	title: z.string().optional(),
+	folderId: nullableNumber,
+	createdAt: z.string().optional(),
+	updatedAt: z.string().optional(),
+	exercises: z.array(formattedRoutineExerciseSchema).optional(),
+});
+export type FormattedRoutine = z.infer<typeof formattedRoutineSchema>;
 
 /**
- * Formatted exercise template interface
+ * Formatted routine folder schema
  */
-export interface FormattedExerciseTemplate {
-	id: string | undefined;
-	title: string | undefined;
-	type: string | undefined;
-	primaryMuscleGroup: string | undefined;
-	secondaryMuscleGroups: string[] | undefined;
-	isCustom: boolean | undefined;
-}
+export const formattedRoutineFolderSchema = z.object({
+	id: z.number().optional(),
+	title: z.string().optional(),
+	createdAt: z.string().optional(),
+	updatedAt: z.string().optional(),
+});
+export type FormattedRoutineFolder = z.infer<
+	typeof formattedRoutineFolderSchema
+>;
 
-export interface FormattedExerciseHistoryEntry {
-	workoutId: string | undefined;
-	workoutTitle: string | undefined;
-	workoutStartTime: string | undefined;
-	workoutEndTime: string | undefined;
-	exerciseTemplateId: string | undefined;
-	weight: number | undefined | null;
-	reps: number | undefined | null;
-	distance: number | undefined | null;
-	duration: number | undefined | null;
-	rpe: number | undefined | null;
-	customMetric: number | undefined | null;
-	setType: string | undefined;
-}
+/**
+ * Formatted exercise template schema
+ */
+export const formattedExerciseTemplateSchema = z.object({
+	id: z.string().optional(),
+	title: z.string().optional(),
+	type: z.string().optional(),
+	primaryMuscleGroup: z.string().optional(),
+	secondaryMuscleGroups: z.array(z.string()).optional(),
+	isCustom: z.boolean().optional(),
+});
+export type FormattedExerciseTemplate = z.infer<
+	typeof formattedExerciseTemplateSchema
+>;
+
+/**
+ * Formatted exercise history entry schema
+ */
+export const formattedExerciseHistoryEntrySchema = z.object({
+	workoutId: z.string().optional(),
+	workoutTitle: z.string().optional(),
+	workoutStartTime: z.string().optional(),
+	workoutEndTime: z.string().optional(),
+	exerciseTemplateId: z.string().optional(),
+	weight: nullableNumber,
+	reps: nullableNumber,
+	distance: nullableNumber,
+	duration: nullableNumber,
+	rpe: nullableNumber,
+	customMetric: nullableNumber,
+	setType: z.string().optional(),
+});
+export type FormattedExerciseHistoryEntry = z.infer<
+	typeof formattedExerciseHistoryEntrySchema
+>;
+
+/**
+ * Formatted body measurement schema
+ */
+export const formattedBodyMeasurementSchema = z.object({
+	date: z.string(),
+	weightKg: z.number().nullable(),
+	leanMassKg: z.number().nullable(),
+	fatPercent: z.number().nullable(),
+	neckCm: z.number().nullable(),
+	shoulderCm: z.number().nullable(),
+	chestCm: z.number().nullable(),
+	leftBicepCm: z.number().nullable(),
+	rightBicepCm: z.number().nullable(),
+	leftForearmCm: z.number().nullable(),
+	rightForearmCm: z.number().nullable(),
+	abdomen: z.number().nullable(),
+	waist: z.number().nullable(),
+	hips: z.number().nullable(),
+	leftThigh: z.number().nullable(),
+	rightThigh: z.number().nullable(),
+	leftCalf: z.number().nullable(),
+	rightCalf: z.number().nullable(),
+});
+export type FormattedBodyMeasurement = z.infer<
+	typeof formattedBodyMeasurementSchema
+>;
 
 type ExerciseWithSupersetVariants = {
 	supersets_id?: number | null;
@@ -310,27 +370,6 @@ export function formatExerciseHistoryEntry(
 		customMetric: entry.custom_metric,
 		setType: entry.set_type,
 	};
-}
-
-export interface FormattedBodyMeasurement {
-	date: string;
-	weightKg: number | null;
-	leanMassKg: number | null;
-	fatPercent: number | null;
-	neckCm: number | null;
-	shoulderCm: number | null;
-	chestCm: number | null;
-	leftBicepCm: number | null;
-	rightBicepCm: number | null;
-	leftForearmCm: number | null;
-	rightForearmCm: number | null;
-	abdomen: number | null;
-	waist: number | null;
-	hips: number | null;
-	leftThigh: number | null;
-	rightThigh: number | null;
-	leftCalf: number | null;
-	rightCalf: number | null;
 }
 
 export function formatBodyMeasurement(
