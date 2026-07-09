@@ -31,7 +31,6 @@ A Model Context Protocol (MCP) server implementation that interfaces with the [H
 - **Routine Management**: Access and manage workout routines.
 - **Exercise Templates**: Browse available exercise templates with in-memory caching.
 - **Folder Organization**: Manage routine folders.
-- **Webhook Subscriptions**: Create, view, and delete webhook subscriptions for workout events.
 
 ---
 
@@ -39,11 +38,11 @@ A Model Context Protocol (MCP) server implementation that interfaces with the [H
 
 Pick the workflow that fits your setup:
 
-| Scenario              | Command                                                                | Requirements               |
-| :-------------------- | :--------------------------------------------------------------------- | :------------------------- |
-| **One-off stdio run** | `HEVY_API_KEY=sk_live... npx -y hevy-mcp`                              | Node.js ≥ 26, Hevy API key |
-| **HTTP mode**         | `HEVY_API_KEY=sk_live... npx -y hevy-mcp --transport=http --port=3000` | Node.js ≥ 26, Hevy API key |
-| **Local development** | `npm install && npm run build && npm start`                            | `.env` with `HEVY_API_KEY` |
+| Scenario              | Command                                                                                     | Requirements               |
+| :-------------------- | :------------------------------------------------------------------------------------------ | :------------------------- |
+| **One-off stdio run** | `HEVY_API_KEY=sk_live... npx -y hevy-mcp` or `HEVY_API_KEY=sk_live... bunx hevy-mcp@latest` | Node.js ≥ 26, Hevy API key |
+| **HTTP mode**         | `HEVY_API_KEY=sk_live... npx -y hevy-mcp --transport=http --port=3000`                      | Node.js ≥ 26, Hevy API key |
+| **Local development** | `npm install && npm run build && npm start`                                                 | `.env` with `HEVY_API_KEY` |
 
 ---
 
@@ -51,18 +50,24 @@ Pick the workflow that fits your setup:
 
 - **Node.js**: v26 or higher (strongly recommended to use the exact version pinned in `.nvmrc`).
 - **npm**: v10 or higher.
+- **Bun** (optional): If you want to launch with `bunx`.
 - **Hevy API key**: Required for all operations (available with Hevy PRO).
 
 ---
 
 ## 📦 Installation
 
-### Run via npx (Recommended)
+### Run via npx or bunx
 
-You can launch the server directly without cloning:
+You can launch the server directly without cloning. Both launchers are covered
+by nightly smoke tests:
 
 ```bash
+# npm launcher
 HEVY_API_KEY=your_hevy_api_key_here npx -y hevy-mcp
+
+# bun launcher
+HEVY_API_KEY=your_hevy_api_key_here bunx hevy-mcp@latest
 ```
 
 ### Manual Installation
@@ -105,6 +110,15 @@ To use this server with Claude Desktop, add the following to your `claude_deskto
 }
 ```
 
+If you prefer Bun, swap the launcher fields:
+
+```json
+{
+	"command": "bunx",
+	"args": ["hevy-mcp@latest"]
+}
+```
+
 ### Cursor Configuration
 
 Add this server under `"mcpServers"` in `~/.cursor/mcp.json`:
@@ -120,6 +134,15 @@ Add this server under `"mcpServers"` in `~/.cursor/mcp.json`:
 			}
 		}
 	}
+}
+```
+
+If you prefer Bun, swap the launcher fields:
+
+```json
+{
+	"command": "bunx",
+	"args": ["hevy-mcp@latest"]
 }
 ```
 
@@ -146,15 +169,33 @@ This bootstraps the `hevy-mcp` entry in your client config without manual JSON e
 
 ## ⚙️ Configuration
 
-Supply your Hevy API key via:
+Supply your Hevy API key via the `HEVY_API_KEY` environment variable (in
+`.env` or system environment).
 
-1. **Environment Variable**: `HEVY_API_KEY` (in `.env` or system environment).
-2. **CLI Argument**: `--hevy-api-key=your_key` (after `--` in npm scripts).
+> ⚠️ CLI API key arguments (`--hevy-api-key=...`, `--hevyApiKey=...`,
+> `hevy-api-key=...`) are still accepted for backward compatibility, but are
+> deprecated and insecure. Use `HEVY_API_KEY` instead.
 
 ```env
 # Example .env
 HEVY_API_KEY=your_hevy_api_key_here
 ```
+
+### 🧠 Exercise Template Cache Behavior
+
+`search-exercise-templates` now uses a shared in-memory async cache for the
+full exercise template catalog:
+
+- **TTL**: 5 minutes per cached catalog entry.
+- **Memory bound**: max 1 catalog entry (LRU bounded cache).
+- **In-flight de-duplication**: concurrent requests share the same active
+  fetch when possible.
+- **Manual refresh**: set `refresh: true` in the tool input to invalidate the
+  cached catalog and force a re-fetch from the Hevy API.
+
+This cache currently applies to `search-exercise-templates` only. Paginated
+`get-exercise-templates` requests still call the API directly to keep paging
+behavior explicit and avoid cross-page invalidation complexity.
 
 ### 📡 Sentry Monitoring (opt-in)
 
@@ -222,7 +263,11 @@ Docker-based workflows are retired. The provided `Dockerfile` now exits with a m
 | **Folders**           | `get-routine-folders`, `get-routine-folder`, `create-routine-folder`                                                               |
 | **Body Measurements** | `get-body-measurements`, `get-body-measurement`, `create-body-measurement`, `update-body-measurement`                              |
 | **User**              | `get-user-info`                                                                                                                    |
-| **Webhooks**          | `get-webhook-subscription`, `create-webhook-subscription`, `delete-webhook-subscription`                                           |
+
+> **Delete operations are currently unsupported:** The upstream Hevy OpenAPI
+> spec does not expose `DELETE` endpoints for workouts, routines, routine
+> folders, exercise templates, or body measurements, so `hevy-mcp` does not
+> provide delete tools for these resources.
 
 ---
 
@@ -232,10 +277,23 @@ Docker-based workflows are retired. The provided `Dockerfile` now exits with a m
 
 - **Build**: `npm run build`
 - **Lint/Format**: `npm run check` (uses oxlint/oxfmt)
+- **Type Check**: `npm run check:types`
 - **Unit Tests**: `npx vitest run --exclude tests/integration/**`
 - **Full Test Suite**: `npm test` (requires `HEVY_API_KEY`)
+- **Changeset Check**: `npm run check:changeset`
 
 For a detailed senior engineer guide, please refer to [AGENTS.md](./AGENTS.md).
+
+### Pull Request Checks
+
+- **Conventional Commits**: CI lints commit messages on pull requests, so use
+  prefixes such as `feat:`, `fix:`, `docs:`, `ci:`, `chore:`, `refactor:`,
+  `test:`, or `style:`.
+- **Type Checking**: CI runs `npm run check:types` on pull requests and pushes
+  to `main`; run this locally before opening a PR.
+- **Changesets**: Contributor pull requests targeting `main` must include a
+  changeset. Dependabot PRs and automated `changeset-release/main` release PRs
+  are handled by automation and skip this check.
 
 ### API Client Generation
 
@@ -244,6 +302,43 @@ The API client is automatically generated from the OpenAPI spec using [Kubb](htt
 ```bash
 npm run build:client
 ```
+
+### Versioning & Releases
+
+This project uses [Changesets](https://github.com/changesets/changesets) to
+manage versioning, changelogs, releases, and pull request validation.
+
+1. **Routine Release Cadence**: Merge the automated
+   `changeset-release/main` (**"Version Packages"**) Pull Request on a regular
+   cadence (weekly is a good default) instead of ad-hoc frequent merges.
+2. **Urgent Release Exception**: Security fixes and high-impact,
+   user-facing bug fixes can be released immediately outside the routine
+   cadence.
+3. **Use Bump Changesets Only for User-Facing Runtime Changes**: If your
+   change is user-facing/runtime-visible, run:
+   ```bash
+   npx changeset
+   ```
+   Follow the prompts to choose `patch`, `minor`, or `major`, then write a
+   short summary. This creates a markdown file under `.changeset/`.
+4. **Use Empty Changesets for Internal-Only Work**: Docs, CI, test-only,
+   refactor, and chore changes should use an empty changeset:
+   ```bash
+   npx changeset --empty
+   ```
+5. **Validate Before Opening a PR**: Contributor pull requests targeting
+   `main` are checked for a changeset in CI. Dependabot PRs and automated
+   `changeset-release/main` release PRs are handled separately. You can run the
+   same validation locally with:
+   ```bash
+   npm run check:changeset
+   ```
+6. **Automated Releases**:
+   - Pushing changesets to `main` triggers a GitHub Action that automatically
+     creates or updates a **"Version Packages"** Pull Request.
+   - When this Pull Request is merged, the package is automatically built,
+     published to npm (via OIDC Trusted Publishing), and a GitHub Release is
+     created.
 
 ---
 

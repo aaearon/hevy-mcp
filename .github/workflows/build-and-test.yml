@@ -14,6 +14,7 @@ permissions:
 env:
   ROLLUP_SKIP_NODEJS_NATIVE_BUILD: "true"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
 
 jobs:
   build:
@@ -34,17 +35,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run type check
+        run: npm run check:types
+
       - name: Verify commit messages
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
-          else
-            if [ -z "${{ github.event.before }}" ] || [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
-              npx commitlint --from HEAD~1 --to HEAD --verbose
-            else
-              npx commitlint --from ${{ github.event.before }} --to ${{ github.event.after }} --verbose
-            fi
-          fi
+        if: github.event_name == 'pull_request'
+        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+
+      - name: Check for changeset
+        if: github.event_name == 'pull_request' && github.actor != 'dependabot[bot]' && github.head_ref != 'changeset-release/main'
+        run: npx changeset status --since=origin/${{ github.base_ref }}
 
       - name: Run Check
         run: npm run check
@@ -55,11 +55,17 @@ jobs:
           SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          OTEL_COLLECTOR_TOKEN: ${{ secrets.OTEL_COLLECTOR_TOKEN }}
+
+      - name: Run mocked integration tests
+        run: npx vitest run tests/integration/mocked
 
       - name: Run tests with coverage
         run: npx vitest run --coverage
-        env:
-          HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
+
+      - name: "Warning: Live integration tests skipped"
+        if: env.HEVY_API_KEY == ''
+        run: echo "HEVY_API_KEY is not set; live integration tests are skipped."
 
       - name: Upload results to Codecov
         uses: codecov/codecov-action@v7
