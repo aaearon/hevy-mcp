@@ -12,7 +12,13 @@
 ## Git & Workflow Standards
 
 - **Conventional Commits**: AI agents (such as Claude Code, Antigravity, etc.) and developers must always use the conventional commit format (e.g., `feat:`, `fix:`, `refactor:`, `build:`, `ci:`, `chore:`, `docs:`, `style:`, `test:`) for all commits they generate or suggest.
-- **GitHub Squash and Merge**: When using "Squash and Merge" on GitHub, always ensure the **PR Title** (which becomes the final commit title) follows the conventional commit format in **lowercase** (e.g., `refactor: replace biome with oxlint`). This is critical for `semantic-release` to correctly identify version bumps.
+- **No Direct Pushes to `main` (CRITICAL)**: Pushing directly to the `main` branch is strictly prohibited and blocked by branch protection. All development must be done on feature branches (e.g., `feat/some-feature` or `fix/some-bug`) and submitted via a Pull Request.
+- **Changesets (CRITICAL)**: The project uses [Changesets](https://github.com/changesets/changesets) for versioning and releases.
+  - **WHEN TO USE**: Every single PR/change that modifies any source code or package dependencies **MUST** have a changeset file.
+  - **HOW TO CREATE**: Before submitting a PR or committing your changes, run `npx changeset` and follow the prompts to select the bump type (major/minor/patch) and write a summary.
+  - **NO-OP / NO-RELEASE CHANGES**: If your change does _not_ require a release (e.g., docs, CI config, internal tests, refactoring, or chore), you **MUST** run `npx changeset --empty` to create an empty changeset file.
+  - **CI ENFORCEMENT**: Pull Requests are guarded by a CI check that runs `npm run check:changeset` (which runs `npx changeset status --since=origin/<base_branch>`). CI will fail if no changeset file is staged/committed.
+  - **VALIDATION**: You can validate your changeset status locally by running `npm run check:changeset`. Make sure the changeset file is staged/committed.
 
 ## Working Effectively
 
@@ -85,7 +91,9 @@ Run these commands in order to set up a working development environment (npm is 
 
    - Takes approximately 4-5 seconds. NEVER CANCEL.
    - **EXPECTED WARNINGS:** OpenAPI validation warnings about missing schemas are normal.
-   - Always run this after updating `openapi-spec.json`.
+   - If you need to refresh `openapi-spec.json` from Hevy first, run `npm run openapi`.
+   - `npm run openapi` fetches the upstream spec and **WILL FAIL** with `ENOTFOUND api.hevyapp.com` in sandboxed environments.
+   - Always run `npm run build:client` after updating `openapi-spec.json`.
 
 ### Server Operations
 
@@ -111,7 +119,7 @@ npm start
 
 ### Known Failing Commands
 
-- **`npm run export-specs`**: Fails with network error (`ENOTFOUND api.hevyapp.com`) in sandboxed environments.
+- **`npm run openapi`**: Fails with network error (`ENOTFOUND api.hevyapp.com`) in sandboxed environments.
 - **`npm run inspect`**: MCP inspector tool - may timeout in environments without proper MCP client setup.
 
 Only list commands here that are known to be flaky or unsupported in some
@@ -227,8 +235,7 @@ src/
     ├── formatters.ts      # Data formatting helpers
     ├── hevyClient.ts      # API client factory
     ├── hevyClientKubb.ts  # Kubb client wrapper
-    ├── config.ts          # Configuration parsing
-    └── httpServer.ts      # HTTP server utilities (deprecated)
+    └── config.ts          # Configuration parsing
 ```
 
 ### Testing Structure
@@ -303,7 +310,7 @@ server.tool(
 
 - **NEVER** edit files in `src/generated/` directly
 - Regenerate API client: `npm run build:client`
-- If OpenAPI spec changes, update `openapi-spec.json` first
+- If OpenAPI spec changes, refresh `openapi-spec.json` with `npm run openapi` first
 - Generated types are available in `src/generated/client/types/index.ts`
 
 ### Error Handling
@@ -321,7 +328,7 @@ server.tool(
 2. **Integration tests failing:** Expected without valid API key
 3. **TypeScript errors in generated code:** Expected - ignore these
 4. **Build failures:** Run `npm run check` to identify formatting/linting issues
-5. **Network errors in export-specs:** Expected in sandboxed environments
+5. **Network errors in `npm run openapi`:** Expected in sandboxed environments
 6. **Type errors in tool handlers:** Use `InferToolParams<typeof schema>` instead of manual type assertions
 7. **Linter warnings about `any`:** Expected in `webhooks.ts` where API methods don't exist yet (see TODOs)
 

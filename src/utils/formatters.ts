@@ -89,7 +89,9 @@ export const formattedRoutineExerciseSchema = z.object({
 	exerciseTemplateId: z.string().optional(),
 	notes: z.string().nullable().optional(),
 	supersetId: nullableNumber,
-	restSeconds: z.string().optional(),
+	// The OpenAPI spec types rest_seconds as a string, but the live Hevy API
+	// returns a number, so accept both to keep output-schema validation happy.
+	restSeconds: z.union([z.string(), z.number()]).nullable().optional(),
 	sets: z.array(formattedRoutineSetSchema).optional(),
 });
 export type FormattedRoutineExercise = z.infer<
@@ -191,12 +193,12 @@ type ExerciseWithSupersetVariants = {
 };
 
 function getSupersetId(exercise: ExerciseWithSupersetVariants): number | null {
-	if (exercise.supersets_id !== undefined) {
-		return exercise.supersets_id;
-	}
-
 	if (exercise.superset_id !== undefined) {
 		return exercise.superset_id;
+	}
+
+	if (exercise.supersets_id !== undefined) {
+		return exercise.supersets_id;
 	}
 
 	return null;

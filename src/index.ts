@@ -1,52 +1,16 @@
-import * as Sentry from "@sentry/node";
+// Telemetry must be initialized before any other imports so that
+// OpenTelemetry and Sentry are ready before application code runs.
+import {
+	Sentry,
+	tracer,
+	serviceName,
+	serviceVersion,
+	setCurrentUserId,
+} from "./utils/telemetry.js";
+import { serverStartups } from "./utils/metrics.js";
+
+import { SpanStatusCode } from "@opentelemetry/api";
 import { createHmac } from "node:crypto";
-
-declare const __HEVY_MCP_NAME__: string | undefined;
-declare const __HEVY_MCP_VERSION__: string | undefined;
-declare const __HEVY_MCP_BUILD__: boolean | undefined;
-
-const isBuiltArtifact =
-	typeof __HEVY_MCP_BUILD__ === "boolean" ? __HEVY_MCP_BUILD__ : false;
-if (
-	isBuiltArtifact &&
-	(typeof __HEVY_MCP_NAME__ !== "string" ||
-		typeof __HEVY_MCP_VERSION__ !== "string")
-) {
-	throw new Error(
-		"Build-time variables __HEVY_MCP_NAME__ and __HEVY_MCP_VERSION__ must be defined.",
-	);
-}
-
-const name =
-	typeof __HEVY_MCP_NAME__ === "string" ? __HEVY_MCP_NAME__ : "hevy-mcp";
-const version =
-	typeof __HEVY_MCP_VERSION__ === "string" ? __HEVY_MCP_VERSION__ : "dev";
-
-// Environment variables are loaded via Node.js native --env-file flag (Node.js 20.6+)
-// or set directly in the environment. No dotenv dependency needed.
-// This avoids stdout pollution that corrupts MCP JSON-RPC communication in stdio mode.
-
-// Sentry monitoring is opt-in: it only initializes when SENTRY_DSN is set, so
-// neither the published package nor this fork sends any telemetry by default.
-// Point SENTRY_DSN at your own Sentry project to enable error and performance
-// monitoring. When unset, the Sentry.* calls throughout this module are no-ops.
-const sentryDsn = process.env.SENTRY_DSN;
-const sentryRelease = process.env.SENTRY_RELEASE ?? `${name}@${version}`;
-const parsedTracesSampleRate = Number(process.env.SENTRY_TRACES_SAMPLE_RATE);
-const sentryTracesSampleRate = Number.isFinite(parsedTracesSampleRate)
-	? parsedTracesSampleRate
-	: 1.0;
-
-if (sentryDsn) {
-	Sentry.init({
-		dsn: sentryDsn,
-		release: sentryRelease,
-		// Tracing must be enabled for MCP monitoring to work
-		tracesSampleRate: sentryTracesSampleRate,
-		sendDefaultPii: false,
-	});
-}
-
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
@@ -55,12 +19,46 @@ import { registerFolderTools } from "./tools/folders.js";
 import { registerRoutineTools } from "./tools/routines.js";
 import { registerTemplateTools } from "./tools/templates.js";
 import { registerUserTools } from "./tools/user.js";
-import { registerWebhookTools } from "./tools/webhooks.js";
 import { registerWorkoutTools } from "./tools/workouts.js";
 import { assertApiKey, assertIssuerUrl, parseConfig } from "./utils/config.js";
 import { startHttpServer, startOAuthHttpServer } from "./utils/httpServer.js";
 import { createClient } from "./utils/hevyClient.js";
 import { createInstrumentedStdioTransport } from "./utils/stdio-observability.js";
+
+const name = serviceName;
+const version = serviceVersion;
+
+const HELP_TEXT = [
+	"Usage:",
+	"  hevy-mcp [options]",
+	"",
+	"Options:",
+	"  -h, --help                 Show this help message and exit",
+	"  -v, --version              Show version and exit",
+	"  --hevy-api-key=<api-key>   (deprecated, use HEVY_API_KEY env var)",
+	"",
+	"Environment:",
+	"  HEVY_API_KEY=<api-key>     Hevy API key from Hevy app settings",
+	"",
+	"Examples:",
+	"  HEVY_API_KEY=your-key npx hevy-mcp",
+	"  npx hevy-mcp --hevy-api-key=your-key",
+	"  npm start -- --hevy-api-key=your-key",
+].join("\n");
+
+function getCliAction(args: string[]): "start" | "version" | "help" {
+	for (const arg of args) {
+		if (arg === "--version" || arg === "-v") {
+			return "version";
+		}
+
+		if (arg === "--help" || arg === "-h") {
+			return "help";
+		}
+	}
+
+	return "start";
+}
 
 const HEVY_API_BASEURL = "https://api.hevyapp.com";
 
@@ -85,116 +83,168 @@ export const configSchema = serverConfigSchema;
 type ServerConfig = z.infer<typeof serverConfigSchema>;
 
 function buildServer(apiKey: string) {
-	return Sentry.startSpan(
+	const userId = fingerprintApiKey(apiKey);
+
+	return tracer.startActiveSpan(
+		"mcp.server.build",
 		{
-			name: "mcp.server.build",
-			op: "mcp.lifecycle.build",
 			attributes: {
 				"mcp.server.name": name,
 				"mcp.server.version": version,
 				"mcp.transport": "stdio",
+				"user.id": userId,
 			},
 		},
-		() => {
-			Sentry.setUser({ id: fingerprintApiKey(apiKey) });
+		(span) => {
+			try {
+				Sentry.setUser({ id: userId });
+				setCurrentUserId(userId);
 
-			const baseServer = new McpServer({
-				name,
-				version,
-			});
-			const server = Sentry.wrapMcpServerWithSentry(baseServer);
+				const baseServer = new McpServer({
+					name,
+					version,
+				});
+				const server = Sentry.wrapMcpServerWithSentry(baseServer);
 
-			const hevyClient = Sentry.startSpan(
-				{
-					name: "mcp.hevy-client.initialize",
-					op: "mcp.lifecycle.client.init",
-				},
-				() => createClient(apiKey, HEVY_API_BASEURL),
-			);
-			console.error("Hevy client initialized with API key");
-
-			Sentry.startSpan(
-				{
-					name: "mcp.tools.register",
-					op: "mcp.lifecycle.tools.register",
-					attributes: {
-						"mcp.tools.count": 7,
+				const hevyClient = tracer.startActiveSpan(
+					"mcp.hevy-client.initialize",
+					(childSpan) => {
+						try {
+							return createClient(apiKey, HEVY_API_BASEURL);
+						} finally {
+							childSpan.end();
+						}
 					},
-				},
-				() => {
-					registerWorkoutTools(server, hevyClient);
-					registerRoutineTools(server, hevyClient);
-					registerTemplateTools(server, hevyClient);
-					registerFolderTools(server, hevyClient);
-					registerBodyMeasurementTools(server, hevyClient);
-					registerUserTools(server, hevyClient);
-					registerWebhookTools(server, hevyClient);
-				},
-			);
+				);
+				console.error("Hevy client initialized with API key");
 
-			return server;
+				tracer.startActiveSpan(
+					"mcp.tools.register",
+					{
+						attributes: {
+							"mcp.tools.count": 6,
+						},
+					},
+					(toolsSpan) => {
+						try {
+							registerWorkoutTools(server, hevyClient);
+							registerRoutineTools(server, hevyClient);
+							registerTemplateTools(server, hevyClient);
+							registerFolderTools(server, hevyClient);
+							registerBodyMeasurementTools(server, hevyClient);
+							registerUserTools(server, hevyClient);
+						} finally {
+							toolsSpan.end();
+						}
+					},
+				);
+
+				span.setStatus({ code: SpanStatusCode.OK });
+				return server;
+			} catch (e) {
+				span.setStatus({ code: SpanStatusCode.ERROR });
+				throw e;
+			} finally {
+				span.end();
+			}
 		},
 	);
 }
 
-export default function createServer({ config }: { config: ServerConfig }) {
+export function createServer({ config }: { config: ServerConfig }) {
 	const { apiKey } = serverConfigSchema.parse(config);
 	const server = buildServer(apiKey);
 	return server;
 }
 
+export default createServer;
+
 export async function runServer() {
 	const args = process.argv.slice(2);
+	const cliAction = getCliAction(args);
+
+	if (cliAction === "version") {
+		console.log(version);
+		return;
+	}
+
+	if (cliAction === "help") {
+		console.log(HELP_TEXT);
+		return;
+	}
+
+	serverStartups.add(1, { version });
+
 	const cfg = parseConfig(args, process.env);
 
-	await Sentry.startSpan(
+	await tracer.startActiveSpan(
+		"mcp.server.run",
 		{
-			name: "mcp.server.run",
-			op: "mcp.lifecycle.run",
 			attributes: {
 				"mcp.transport": cfg.transport ?? "stdio",
 			},
 		},
-		async () => {
-			if (cfg.transport === "http+oauth") {
+		async (span) => {
+			try {
+				if (cfg.transport === "http+oauth") {
+					assertApiKey(cfg.apiKey);
+					assertIssuerUrl(cfg.issuerUrl);
+					const port = cfg.port ?? 3000;
+					console.error(
+						`Starting MCP server in HTTP+OAuth mode on port ${port}`,
+					);
+					await startOAuthHttpServer(
+						() => buildServer(cfg.apiKey!),
+						port,
+						cfg.issuerUrl!,
+						"Hevy MCP Authorization",
+					);
+					span.setStatus({ code: SpanStatusCode.OK });
+					return;
+				}
+
 				assertApiKey(cfg.apiKey);
-				assertIssuerUrl(cfg.issuerUrl);
-				const port = cfg.port ?? 3000;
-				console.error(`Starting MCP server in HTTP+OAuth mode on port ${port}`);
-				await startOAuthHttpServer(
-					() => buildServer(cfg.apiKey!),
-					port,
-					cfg.issuerUrl!,
-					"Hevy MCP Authorization",
-				);
-				return;
-			}
 
-			assertApiKey(cfg.apiKey);
+				if (cfg.transport === "http") {
+					const port = cfg.port ?? 3000;
+					console.error(`Starting MCP server in HTTP mode on port ${port}`);
+					await startHttpServer(() => buildServer(cfg.apiKey!), port);
+					span.setStatus({ code: SpanStatusCode.OK });
+					return;
+				}
 
-			if (cfg.transport === "http") {
-				const port = cfg.port ?? 3000;
-				console.error(`Starting MCP server in HTTP mode on port ${port}`);
-				await startHttpServer(() => buildServer(cfg.apiKey!), port);
-			} else {
-				console.error("Starting MCP server in stdio mode");
 				const server = buildServer(cfg.apiKey!);
+				console.error("Starting MCP server in stdio mode");
 				const transport = createInstrumentedStdioTransport(
 					new StdioServerTransport(),
 				);
 
-				await Sentry.startSpan(
+				await tracer.startActiveSpan(
+					"mcp.server.connect",
 					{
-						name: "mcp.server.connect",
-						op: "mcp.lifecycle.connect",
 						attributes: {
 							"mcp.transport": "stdio",
 						},
 					},
-					async () => {
-						await server.connect(transport);
+					async (connectSpan) => {
+						try {
+							await server.connect(transport);
+							connectSpan.setStatus({ code: SpanStatusCode.OK });
+						} catch (e) {
+							connectSpan.setStatus({ code: SpanStatusCode.ERROR });
+							throw e;
+						} finally {
+							connectSpan.end();
+						}
 					},
 				);
+
+				span.setStatus({ code: SpanStatusCode.OK });
+			} catch (e) {
+				span.setStatus({ code: SpanStatusCode.ERROR });
+				throw e;
+			} finally {
+				span.end();
 			}
 		},
 	);
