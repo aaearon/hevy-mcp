@@ -8,11 +8,20 @@
 - The codebase is TypeScript (Node.js v26+), with a clear separation between tool implementations (`src/tools/`), generated API clients (`src/generated/`), and utility logic (`src/utils/`).
 - API client code is generated from the OpenAPI spec using [Kubb](https://kubb.dev/). **Do not manually edit generated files.**
 - **Type Safety:** The project uses Zod schema inference for type-safe tool parameters, eliminating manual type assertions and ensuring compile-time type safety.
+- **MCP SDK internals sensitivity:** `src/utils/stdio-observability.ts` depends on MCP SDK stdio internals (private fields such as `_ondata`/`_readBuffer`) for raw chunk instrumentation. Re-run the stdio observability test suite after any `@modelcontextprotocol/sdk` upgrade.
 
 ## Git & Workflow Standards
 
 - **Conventional Commits**: AI agents (such as Claude Code, Antigravity, etc.) and developers must always use the conventional commit format (e.g., `feat:`, `fix:`, `refactor:`, `build:`, `ci:`, `chore:`, `docs:`, `style:`, `test:`) for all commits they generate or suggest.
-- **GitHub Squash and Merge**: When using "Squash and Merge" on GitHub, always ensure the **PR Title** (which becomes the final commit title) follows the conventional commit format in **lowercase** (e.g., `refactor: replace biome with oxlint`). This is critical for `semantic-release` to correctly identify version bumps.
+- **No Direct Pushes to `main` (CRITICAL)**: Pushing directly to the `main` branch is strictly prohibited and blocked by branch protection. All development must be done on feature branches (e.g., `feat/some-feature` or `fix/some-bug`) and submitted via a Pull Request.
+- **Changesets (CRITICAL)**: The project uses [Changesets](https://github.com/changesets/changesets) for versioning and releases.
+  - **RELEASE CADENCE**: Merge the automated `changeset-release/main` (**"Version Packages"**) Pull Request on a regular cadence (weekly is the default), not via ad-hoc frequent merges.
+  - **URGENT EXCEPTION**: Security fixes and high-impact user-facing bug fixes may be released immediately outside the routine cadence.
+  - **WHEN TO USE**: Every single PR/change that modifies source code or package dependencies **MUST** include a changeset file.
+  - **HOW TO CREATE BUMP CHANGESETS**: Use `npx changeset` with `patch`/`minor`/`major` **only** for user-facing, runtime-visible changes.
+  - **NO-OP / NO-RELEASE CHANGES**: For docs, CI config, internal tests, refactoring, and other internal-only changes, you **MUST** run `npx changeset --empty`.
+  - **CI ENFORCEMENT**: Pull Requests are guarded by a CI check that runs `npm run check:changeset` (which runs `npx changeset status --since=origin/<base_branch>`). CI will fail if no changeset file is staged/committed.
+  - **VALIDATION**: You can validate your changeset status locally by running `npm run check:changeset`. Make sure the changeset file is staged/committed.
 
 ## Agent Tool Requirements
 
@@ -93,7 +102,9 @@ Run these commands in order to set up a working development environment (npm is 
 
    - Takes approximately 4-5 seconds. NEVER CANCEL.
    - **EXPECTED WARNINGS:** OpenAPI validation warnings about missing schemas are normal.
-   - Always run this after updating `openapi-spec.json`.
+   - If you need to refresh `openapi-spec.json` from Hevy first, run `npm run openapi`.
+   - `npm run openapi` fetches the upstream spec and **WILL FAIL** with `ENOTFOUND api.hevyapp.com` in sandboxed environments.
+   - Always run `npm run build:client` after updating `openapi-spec.json`.
 
 ### Server Operations
 
@@ -119,7 +130,7 @@ npm start
 
 ### Known Failing Commands
 
-- **`npm run export-specs`**: Fails with network error (`ENOTFOUND api.hevyapp.com`) in sandboxed environments.
+- **`npm run openapi`**: Fails with network error (`ENOTFOUND api.hevyapp.com`) in sandboxed environments.
 - **`npm run inspect`**: MCP inspector tool - may timeout in environments without proper MCP client setup.
 
 Only list commands here that are known to be flaky or unsupported in some
@@ -139,6 +150,12 @@ Create a `.env` file in the project root with:
 ```env
 HEVY_API_KEY=your_hevy_api_key_here
 ```
+
+Always provide the API key through `HEVY_API_KEY`.
+
+Do **not** pass API keys via CLI arguments
+(`--hevy-api-key=...`, `--hevyApiKey=...`, `hevy-api-key=...`). These CLI
+forms are deprecated and insecure.
 
 **CRITICAL:** Without this API key:
 
@@ -188,7 +205,8 @@ Always perform these validation steps after making changes:
    ```
 
    - Must complete without errors (warnings about oxlint and oxfmt schema are acceptable).
-   - **EXPECTED:** Warnings about `any` usage in `webhooks.ts` are acceptable (API methods not yet available).
+   - No tool-specific lint warnings are expected; treat reported code warnings
+     as issues to fix.
 
 4. **Type checking validation:**
 
@@ -201,7 +219,8 @@ Always perform these validation steps after making changes:
      configured in the `check:types` script in `package.json`.
    - Note: `npm run build` (tsup) may still succeed when this fails.
    - Treat failures here as issues to fix (even if the build passes).
-   - Run this locally before opening a PR (CI does not currently run this check).
+   - Run this locally before opening a PR; CI also runs this check on pull
+     requests and pushes to `main`.
    - Verifies all type inference is working correctly.
 
 5. **MCP tool functionality validation (if API key available):**
@@ -225,12 +244,14 @@ Always perform these validation steps after making changes:
 ```
 src/
 ├── index.ts           # Main entry point - register tools here
-├── tools/             # MCP tool implementations
-│   ├── workouts.ts    # Workout management tools
-│   ├── routines.ts    # Routine management tools
-│   ├── templates.ts   # Exercise template tools
-│   ├── folders.ts     # Routine folder tools
-│   └── webhooks.ts    # Webhook subscription tools
+├── tools/             # MCP tool implementations (+ co-located *.test.ts)
+│   ├── annotations.ts       # Workout annotation tools
+│   ├── body-measurements.ts # Body measurement tools
+│   ├── folders.ts           # Routine folder tools
+│   ├── routines.ts          # Routine management tools
+│   ├── templates.ts         # Exercise template tools
+│   ├── user.ts              # User profile tools
+│   └── workouts.ts          # Workout management tools
 ├── generated/         # Auto-generated API client (DO NOT EDIT)
 │   ├── client/        # Kubb-generated client code
 │   └── schemas/       # Zod validation schemas
@@ -241,8 +262,7 @@ src/
     ├── formatters.ts      # Data formatting helpers
     ├── hevyClient.ts      # API client factory
     ├── hevyClientKubb.ts  # Kubb client wrapper
-    ├── config.ts          # Configuration parsing
-    └── httpServer.ts      # HTTP server utilities (deprecated)
+    └── config.ts          # Configuration parsing
 ```
 
 ### Testing Structure
@@ -364,7 +384,7 @@ machine-readable `structuredContent` object. Rules:
 
 - **NEVER** edit files in `src/generated/` directly
 - Regenerate API client: `npm run build:client`
-- If OpenAPI spec changes, update `openapi-spec.json` first
+- If OpenAPI spec changes, refresh `openapi-spec.json` with `npm run openapi` first
 - Generated types are available in `src/generated/client/types/index.ts`
 
 ### Error Handling
@@ -382,9 +402,11 @@ machine-readable `structuredContent` object. Rules:
 2. **Integration tests failing:** Expected without valid API key
 3. **TypeScript errors in generated code:** Expected - ignore these
 4. **Build failures:** Run `npm run check` to identify formatting/linting issues
-5. **Network errors in export-specs:** Expected in sandboxed environments
+5. **Network errors in `npm run openapi`:** Expected in sandboxed environments
 6. **Type errors in tool handlers:** Use `InferToolParams<typeof schema>` instead of manual type assertions
-7. **Linter warnings about `any`:** Expected in `webhooks.ts` where API methods don't exist yet (see TODOs)
+7. **Stale webhook references in docs:** Webhook endpoints are not currently
+   available in the generated client, so docs should not reference a
+   `src/tools/webhooks.ts` tool implementation.
 
 ### Performance Expectations
 

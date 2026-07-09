@@ -7,7 +7,6 @@ import { registerFolderTools } from "./folders.js";
 import { registerRoutineTools } from "./routines.js";
 import { registerTemplateTools } from "./templates.js";
 import { registerUserTools } from "./user.js";
-import { registerWebhookTools } from "./webhooks.js";
 import { registerWorkoutTools } from "./workouts.js";
 
 /**
@@ -110,7 +109,6 @@ const registrars = [
 	registerFolderTools,
 	registerBodyMeasurementTools,
 	registerUserTools,
-	registerWebhookTools,
 ];
 
 describe("tool outputSchema matches returned structuredContent", () => {

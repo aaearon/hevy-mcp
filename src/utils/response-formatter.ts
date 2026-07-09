@@ -1,19 +1,22 @@
+import type {
+	CallToolResult,
+	TextContent,
+} from "@modelcontextprotocol/sdk/types.js";
+
 /**
- * MCP Tool Response type
+ * MCP tool response type aligned with MCP SDK CallToolResult while keeping
+ * content narrowed to text blocks for this server.
  */
-export interface McpToolResponse {
-	[x: string]: unknown;
-	content: Array<{
-		type: "text";
-		text: string;
-	}>;
-	/**
-	 * Machine-readable structured payload mirroring the text content. Only set
-	 * for object payloads, since the MCP spec requires structuredContent to be a
-	 * JSON object. Tools that declare an outputSchema must return this.
-	 */
-	structuredContent?: Record<string, unknown>;
-}
+/**
+ * Aligned with the MCP SDK CallToolResult (so it carries the optional
+ * `structuredContent` machine-readable payload, `isError`, `_meta`, etc.) while
+ * narrowing `content` to text blocks for this server. `createJsonResponse`
+ * populates `structuredContent` for object payloads; tools that declare an
+ * outputSchema rely on that channel.
+ */
+export type McpToolResponse = Omit<CallToolResult, "content"> & {
+	content: TextContent[];
+};
 
 /**
  * Format options for JSON responses
@@ -36,14 +39,15 @@ export function createJsonResponse(
 	data: unknown,
 	options: JsonFormatOptions = { pretty: true, indent: 2 },
 ): McpToolResponse {
-	const jsonString = options.pretty
-		? JSON.stringify(data, null, options.indent)
-		: JSON.stringify(data);
+	const jsonString =
+		(options.pretty
+			? JSON.stringify(data, null, options.indent)
+			: JSON.stringify(data)) ?? "null";
 
 	const response: McpToolResponse = {
 		content: [
 			{
-				type: "text" as const,
+				type: "text",
 				text: jsonString,
 			},
 		],
@@ -70,7 +74,7 @@ export function createTextResponse(message: string): McpToolResponse {
 	return {
 		content: [
 			{
-				type: "text" as const,
+				type: "text",
 				text: message,
 			},
 		],
@@ -86,12 +90,5 @@ export function createTextResponse(message: string): McpToolResponse {
 export function createEmptyResponse(
 	message = "No data found",
 ): McpToolResponse {
-	return {
-		content: [
-			{
-				type: "text" as const,
-				text: message,
-			},
-		],
-	};
+	return createTextResponse(message);
 }
