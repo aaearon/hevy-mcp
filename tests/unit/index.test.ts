@@ -174,32 +174,6 @@ describe("Node package environment variable loading", () => {
 		});
 	});
 
-	describe("Sentry initialization with environment variables", () => {
-		it("should work with Sentry when environment variables are loaded", () => {
-			// Verify that Sentry can access env vars loaded via --env-file
-			process.env.SENTRY_DSN = "https://test@sentry.io/123";
-			process.env.NODE_ENV = "production";
-
-			expect(process.env.SENTRY_DSN).toBeTruthy();
-			expect(process.env.NODE_ENV).toBe("production");
-		});
-
-		it("should handle missing Sentry configuration gracefully", () => {
-			delete process.env.SENTRY_DSN;
-
-			// Application should not crash without Sentry DSN
-			expect(process.env.SENTRY_DSN).toBeUndefined();
-		});
-
-		it("should support Sentry environment-specific configuration", () => {
-			process.env.SENTRY_ENVIRONMENT = "staging";
-			process.env.SENTRY_RELEASE = "1.18.1";
-
-			expect(process.env.SENTRY_ENVIRONMENT).toBe("staging");
-			expect(process.env.SENTRY_RELEASE).toBe("1.18.1");
-		});
-	});
-
 	describe("Edge cases and error handling", () => {
 		it("should handle undefined environment variables", () => {
 			expect(process.env.NON_EXISTENT_VAR).toBeUndefined();

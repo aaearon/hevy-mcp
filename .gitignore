@@ -140,6 +140,5 @@ worker-configuration.d.ts
 
 # env
 .env
-.env.sentry-build-plugin
 .aider*
 .dev.vars

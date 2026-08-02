@@ -35,7 +35,9 @@ export const packageRules = new Map([
 				["@hevy-mcp/core", new Set([""])],
 				["@hevy-mcp/hevy-client", new Set([""])],
 			]),
-			forbidden: ["@cloudflare/", "cloudflare:"],
+			// Runtime telemetry SDKs were removed from the shipped server; deny
+			// them here so they cannot be reintroduced.
+			forbidden: ["@cloudflare/", "cloudflare:", "@sentry/", "@opentelemetry/"],
 			rejectBuiltins: false,
 			rejectDynamicImports: false,
 		},

@@ -1,7 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { HevyHttpError } from "@hevy-mcp/hevy-client";
 import { ErrorType } from "./error-policy.js";
-import { createErrorResponse, withErrorHandling } from "./error-handler.js";
+import {
+	createErrorResponse,
+	createMcpToolFailureEvent,
+	withErrorHandling,
+} from "./error-handler.js";
 
 function httpError(status: number, data?: unknown, headers?: Headers) {
 	return new HevyHttpError(`HTTP ${status}`, {
@@ -32,24 +36,33 @@ describe("createErrorResponse", () => {
 		expect(JSON.stringify(result)).not.toContain("secret-ordinary-error");
 	});
 
-	it("emits the canonical bounded failure event", () => {
+	it("never writes the failure event to stderr", () => {
 		const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		try {
 			createErrorResponse(httpError(500), "get-workouts");
-			expect(stderrSpy).toHaveBeenCalledWith(
-				JSON.stringify({
-					event: "mcp.tool.failure",
-					"mcp.tool.name": "get-workouts",
-					"error.type": ErrorType.API_ERROR,
-					"error.category": "HevyHttpError",
-					"http.status_code": 500,
-					"http.method": "GET",
-					"hevy.api.endpoint": "/v1/user/info",
-				}),
-			);
+			expect(stderrSpy).not.toHaveBeenCalled();
 		} finally {
 			stderrSpy.mockRestore();
 		}
+	});
+
+	it("builds the canonical bounded failure event for observers", () => {
+		expect(
+			createMcpToolFailureEvent("get-workouts", ErrorType.API_ERROR, {
+				category: "HevyHttpError",
+				status: 500,
+				method: "GET",
+				endpoint: "/v1/user/info",
+			}),
+		).toEqual({
+			event: "mcp.tool.failure",
+			"mcp.tool.name": "get-workouts",
+			"error.type": ErrorType.API_ERROR,
+			"error.category": "HevyHttpError",
+			"http.status_code": 500,
+			"http.method": "GET",
+			"hevy.api.endpoint": "/v1/user/info",
+		});
 	});
 
 	it("classifies the original error message when the safe message is generic", () => {

@@ -40,12 +40,6 @@ jobs:
           cache: "npm"
       - run: npm ci
       - run: npm run build
-        env:
-          HEVY_MCP_RELEASE: "true"
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          OTEL_COLLECTOR_TOKEN: ${{ secrets.OTEL_COLLECTOR_TOKEN }}
       - name: Run unit tests
         run: npx vitest run --exclude 'tests/integration/**'
       - name: Verify published package
@@ -82,11 +76,6 @@ jobs:
           title: "chore: version packages"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
-          SENTRY_PROJECT: ${{ secrets.SENTRY_PROJECT }}
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          OTEL_COLLECTOR_TOKEN: ${{ secrets.OTEL_COLLECTOR_TOKEN }}
-          HEVY_MCP_RELEASE: "true"
       - name: Set Release Outputs
         id: release
         run: |
@@ -198,8 +187,6 @@ jobs:
           WRANGLER_MODE: production
           CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
           CLOUDFLARE_WORKER_ROUTE: ${{ vars.CLOUDFLARE_WORKER_ROUTE }}
-          CLOUDFLARE_OTEL_LOGS_DESTINATIONS: ${{ vars.CLOUDFLARE_OTEL_LOGS_DESTINATIONS }}
-          CLOUDFLARE_OTEL_TRACES_DESTINATIONS: ${{ vars.CLOUDFLARE_OTEL_TRACES_DESTINATIONS }}
           CLOUDFLARE_OAUTH_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_OAUTH_KV_NAMESPACE_ID }}
         run: >-
           npx wrangler deploy

@@ -56,7 +56,7 @@ export function isExpectedListPageNotFound(
 	);
 }
 
-/** Mutation/caller 404s remain MCP errors but do not create Sentry issues. */
+/** Mutation/caller 404s remain MCP errors but are expected, not defects. */
 export function isExpectedMutationNotFound(error: unknown): boolean {
 	return (
 		isHevyHttpError(error) &&

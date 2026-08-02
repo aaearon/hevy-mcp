@@ -102,8 +102,6 @@ export async function createPerformanceHarness(
 			...process.env,
 			HEVY_API_KEY: PERFORMANCE_API_KEY,
 			HEVY_PERFORMANCE_FIXTURE_MODE: mode,
-			OTEL_COLLECTOR_TOKEN: "",
-			SENTRY_DSN: "",
 		},
 		stderr: "pipe",
 	});

@@ -1,25 +1,9 @@
-import { SpanStatusCode, trace } from "@opentelemetry/api";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const testDoubles = vi.hoisted(() => {
-	const span = {
-		addEvent: vi.fn(),
-		setAttribute: vi.fn(),
-		setStatus: vi.fn(),
-		end: vi.fn(),
-	};
-	const sdkProtocol = {
-		onerror: undefined as ((error: Error) => void) | undefined,
-		_requestHandlers: new Map<
-			string,
-			(request: unknown, extra: unknown) => Promise<unknown>
-		>(),
-	};
 	const server = {
 		connect: vi.fn().mockResolvedValue(undefined),
 		close: vi.fn().mockResolvedValue(undefined),
-		server: sdkProtocol,
-		createToolError: undefined as ((message: string) => unknown) | undefined,
 	};
 	const startupClient = {
 		getUserInfo: vi.fn().mockResolvedValue({ id: "user" }),
@@ -29,8 +13,6 @@ const testDoubles = vi.hoisted(() => {
 
 	return {
 		server,
-		span,
-		sdkProtocol,
 		startupClient,
 		runtimeClient,
 		httpHandle,
@@ -38,47 +20,21 @@ const testDoubles = vi.hoisted(() => {
 		createHevyClient: vi.fn(),
 		createHevyMcpServer: vi.fn(),
 		startStreamableHttpServer: vi.fn(),
-		wrapMcpServerWithSentry: vi.fn((value: unknown) => value),
-		setTelemetryUser: vi.fn(),
-		installProcessExceptionTracking: vi.fn(() => vi.fn()),
-		flushTelemetry: vi.fn().mockResolvedValue(undefined),
-		recordTelemetryException: vi.fn(),
-		serverStartups: { add: vi.fn() },
 		installGracefulShutdown: vi.fn(),
-		instrumentTransport: vi.fn(() => ({ kind: "stdio-transport" })),
+		hardenTransport: vi.fn(() => ({ kind: "stdio-transport" })),
 		scheduleUpdateCheck: vi.fn(),
 		recordSessionTermination: vi.fn(),
 		resolveTerminationCategory: vi.fn(() => "clean"),
 		createNodeHevyClientOptions: vi.fn(() => ({
 			onRequestComplete: vi.fn(),
 		})),
-		createNodeCacheObserver: vi.fn(() => ({ start: vi.fn() })),
-		createNodeToolObserver: vi.fn(() => ({ kind: "observer" })),
 	};
 });
 
-vi.mock("./utils/telemetry.js", () => ({
-	Sentry: {
-		wrapMcpServerWithSentry: testDoubles.wrapMcpServerWithSentry,
-	},
-	flushTelemetry: testDoubles.flushTelemetry,
-	tracer: {
-		startActiveSpan: vi.fn((...args: unknown[]) => {
-			const callback = args.at(-1) as (
-				span: typeof testDoubles.span,
-			) => unknown;
-			return callback(testDoubles.span);
-		}),
-	},
+vi.mock("./utils/service-info.js", () => ({
 	serviceName: "hevy-mcp",
 	serviceVersion: "3.4.1",
-	setTelemetryUser: testDoubles.setTelemetryUser,
-	recordTelemetryException: testDoubles.recordTelemetryException,
-	installProcessExceptionTracking: testDoubles.installProcessExceptionTracking,
-}));
-
-vi.mock("./utils/metrics.js", () => ({
-	serverStartups: testDoubles.serverStartups,
+	serviceInfo: { name: "hevy-mcp", version: "3.4.1" },
 }));
 
 vi.mock("@hevy-mcp/hevy-client", () => ({
@@ -108,22 +64,15 @@ vi.mock("./utils/graceful-shutdown.js", () => ({
 	installGracefulShutdown: testDoubles.installGracefulShutdown,
 }));
 
-vi.mock("./utils/hevy-client-observability.js", () => ({
+vi.mock("./utils/hevy-client-debug.js", () => ({
 	createNodeHevyClientOptions: testDoubles.createNodeHevyClientOptions,
-	createNodeCacheObserver: testDoubles.createNodeCacheObserver,
 }));
 
-vi.mock("./utils/tool-observer.js", () => ({
-	createNodeToolObserver: testDoubles.createNodeToolObserver,
-}));
-
-vi.mock("./utils/stdio-observability.js", () => ({
-	createInstrumentedStdioTransport: testDoubles.instrumentTransport,
+vi.mock("./utils/stdio-parsing.js", () => ({
+	createHardenedStdioTransport: testDoubles.hardenTransport,
 }));
 
 vi.mock("./utils/mcp-session-observability.js", () => ({
-	getCurrentMcpSessionId: vi.fn(() => "test-session"),
-	getCurrentMcpTransport: vi.fn(() => "stdio"),
 	recordMcpSessionTermination: testDoubles.recordSessionTermination,
 	resolveSessionTerminationCategory: testDoubles.resolveTerminationCategory,
 }));
@@ -147,12 +96,8 @@ function configureSuccessfulConstruction(): void {
 	testDoubles.createHevyMcpServer.mockImplementation(
 		(options: {
 			createClient: (context: { onLog: () => void }) => unknown;
-			decorateServer?: (server: typeof testDoubles.server) => unknown;
-			onToolsRegistered?: (count: number) => void;
 		}) => {
-			options.decorateServer?.(testDoubles.server);
 			options.createClient({ onLog: vi.fn() });
-			options.onToolsRegistered?.(25);
 			return testDoubles.server;
 		},
 	);
@@ -161,9 +106,6 @@ function configureSuccessfulConstruction(): void {
 describe("Node package entrypoint", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
-		testDoubles.sdkProtocol._requestHandlers.clear();
-		testDoubles.sdkProtocol.onerror = undefined;
-		testDoubles.server.createToolError = undefined;
 		testDoubles.server.connect.mockResolvedValue(undefined);
 		testDoubles.startupClient.getUserInfo.mockResolvedValue({ id: "user" });
 		configureSuccessfulConstruction();
@@ -186,15 +128,12 @@ describe("Node package entrypoint", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("constructs an unconnected decorated server from explicit options", async () => {
+	it("constructs an unconnected server from explicit options", async () => {
 		process.env.HEVY_API_KEY = "environment-key-sentinel";
 
 		await expect(
 			createNodeMcpServer({ apiKey: "programmatic-key" }),
 		).resolves.toBe(testDoubles.server);
-		expect(testDoubles.setTelemetryUser).toHaveBeenCalledWith(
-			"programmatic-key",
-		);
 
 		expect(testDoubles.createHevyClient).toHaveBeenNthCalledWith(
 			1,
@@ -213,80 +152,7 @@ describe("Node package entrypoint", () => {
 				onRequestComplete: expect.any(Function),
 			}),
 		);
-		expect(testDoubles.wrapMcpServerWithSentry).toHaveBeenCalledWith(
-			testDoubles.server,
-			{ recordInputs: false, recordOutputs: false },
-		);
-		expect(testDoubles.span.setAttribute).toHaveBeenCalledWith(
-			"mcp.tools.count",
-			25,
-		);
 		expect(testDoubles.server.connect).not.toHaveBeenCalled();
-	});
-	it("tracks SDK tool, discovery, validation, and protocol failures", async () => {
-		const toolHandler = vi
-			.fn()
-			.mockResolvedValueOnce({ isError: true })
-			.mockResolvedValueOnce({})
-			.mockRejectedValueOnce(new Error("tool failure"));
-		const discoveryHandler = vi
-			.fn()
-			.mockResolvedValueOnce({ capabilities: [] })
-			.mockRejectedValueOnce(new Error("discovery failure"));
-		const previousOnError = vi.fn(() => {
-			throw new Error("previous SDK handler failure");
-		});
-		const createToolError = vi.fn((message: string) => ({ message }));
-		testDoubles.sdkProtocol.onerror = previousOnError;
-		testDoubles.sdkProtocol._requestHandlers.set("tools/call", toolHandler);
-		testDoubles.sdkProtocol._requestHandlers.set(
-			"server/discover",
-			discoveryHandler,
-		);
-		testDoubles.server.createToolError = createToolError;
-
-		await expect(createNodeMcpServer({ apiKey: "valid-key" })).resolves.toBe(
-			testDoubles.server,
-		);
-
-		const wrappedToolHandler =
-			testDoubles.sdkProtocol._requestHandlers.get("tools/call");
-		const wrappedDiscoveryHandler =
-			testDoubles.sdkProtocol._requestHandlers.get("server/discover");
-		expect(wrappedToolHandler).toBeDefined();
-		expect(wrappedDiscoveryHandler).toBeDefined();
-		if (!wrappedToolHandler || !wrappedDiscoveryHandler) return;
-
-		await expect(
-			wrappedToolHandler({ params: { name: "get-workouts" } }, {}),
-		).resolves.toEqual({ isError: true });
-		await expect(
-			wrappedToolHandler({ params: { name: "get-workouts" } }, {}),
-		).resolves.toEqual({});
-		await expect(
-			wrappedToolHandler({ params: { name: "bad name" } }, {}),
-		).rejects.toThrow("tool failure");
-		await expect(wrappedDiscoveryHandler({}, {})).resolves.toEqual({
-			capabilities: [],
-		});
-		await expect(wrappedDiscoveryHandler({}, {})).rejects.toThrow(
-			"discovery failure",
-		);
-
-		testDoubles.sdkProtocol.onerror?.(new Error("protocol failure"));
-		const activeSpanSpy = vi
-			.spyOn(trace, "getActiveSpan")
-			.mockReturnValue(testDoubles.span as never);
-		testDoubles.server.createToolError?.("invalid tool");
-		testDoubles.sdkProtocol.onerror?.(new Error("active protocol failure"));
-
-		expect(testDoubles.span.addEvent).toHaveBeenCalledWith(
-			"mcp.tool.failure",
-			expect.objectContaining({ "mcp.tool.name": "unknown" }),
-		);
-		expect(testDoubles.recordTelemetryException).toHaveBeenCalled();
-		expect(createToolError).toHaveBeenCalledWith("invalid tool");
-		activeSpanSpy.mockRestore();
 	});
 
 	it("sanitizes HTTP and malformed startup diagnostics", async () => {
@@ -310,35 +176,6 @@ describe("Node package entrypoint", () => {
 		expect(console.error).not.toHaveBeenCalledWith(
 			expect.stringContaining("Diagnostic: HTTP"),
 		);
-	});
-	it("validates the HTTP key once and builds sessions without re-probing", async () => {
-		process.env.HEVY_API_KEY = "runtime-key";
-		process.argv.push("--transport", "http");
-		testDoubles.startStreamableHttpServer.mockImplementationOnce(
-			async (
-				_options: unknown,
-				_apiKey: string,
-				factory: (params: { apiKey: string }) => Promise<unknown>,
-			) => {
-				await factory({ apiKey: "runtime-key" });
-				return testDoubles.httpHandle;
-			},
-		);
-
-		await runServer();
-		const options = testDoubles.installGracefulShutdown.mock.calls[0]?.[0] as {
-			onComplete: (succeeded: boolean) => Promise<void>;
-		};
-		await options.onComplete(true);
-		expect(testDoubles.setTelemetryUser).toHaveBeenCalledOnce();
-		expect(testDoubles.setTelemetryUser).toHaveBeenCalledWith("runtime-key");
-
-		expect(testDoubles.startupClient.getUserInfo).toHaveBeenCalledOnce();
-		expect(testDoubles.createHevyMcpServer).toHaveBeenCalledOnce();
-		expect(testDoubles.installGracefulShutdown).toHaveBeenCalledWith(
-			expect.objectContaining({ target: testDoubles.httpHandle }),
-		);
-		expect(testDoubles.flushTelemetry).toHaveBeenCalledOnce();
 	});
 
 	it("dispatches the default transport through runServer", async () => {
@@ -371,17 +208,12 @@ describe("Node package entrypoint", () => {
 		},
 	);
 
-	it("reports construction failures through the startup span", async () => {
+	it("propagates construction failures to the caller", async () => {
 		testDoubles.createHevyMcpServer.mockImplementationOnce(() => {
 			throw new Error("construction failure");
 		});
 		await expect(createNodeMcpServer({ apiKey: "valid-key" })).rejects.toThrow(
 			"construction failure",
-		);
-		expect(testDoubles.recordTelemetryException).toHaveBeenCalledWith(
-			expect.any(Error),
-			expect.objectContaining({ "error.category": "Error" }),
-			testDoubles.span,
 		);
 	});
 
@@ -409,14 +241,16 @@ describe("Node package entrypoint", () => {
 		await runStdioServer();
 		expect(console.log).toHaveBeenCalledWith(expect.stringContaining(output));
 
-		expect(console.log).toHaveBeenCalledWith(
-			expect.stringContaining("HEVY_MCP_TELEMETRY=0"),
-		);
-		expect(console.log).toHaveBeenCalledWith(
-			expect.stringContaining("Disable all project telemetry"),
-		);
-		expect(testDoubles.serverStartups.add).not.toHaveBeenCalled();
 		expect(testDoubles.createHevyClient).not.toHaveBeenCalled();
+	});
+
+	it("does not advertise any telemetry environment variables in help", async () => {
+		process.argv.push("--help");
+
+		await runStdioServer();
+
+		const helpText = String(vi.mocked(console.log).mock.calls[0]?.[0]);
+		expect(helpText).not.toMatch(/telemetry|sentry|otel/i);
 	});
 
 	it.each([
@@ -439,7 +273,6 @@ describe("Node package entrypoint", () => {
 			await runStdioServer();
 
 			expect(console.error).toHaveBeenCalledWith("hevy-mcp v3.4.1");
-			expect(testDoubles.serverStartups.add).not.toHaveBeenCalled();
 			expect(testDoubles.createHevyClient).not.toHaveBeenCalled();
 		},
 	);
@@ -459,8 +292,6 @@ describe("Node package entrypoint", () => {
 		);
 
 		await runServer();
-		expect(testDoubles.setTelemetryUser).toHaveBeenCalledOnce();
-		expect(testDoubles.setTelemetryUser).toHaveBeenCalledWith("runtime-key");
 
 		expect(testDoubles.startupClient.getUserInfo).toHaveBeenCalledOnce();
 		expect(testDoubles.createHevyMcpServer).toHaveBeenCalledOnce();
@@ -480,7 +311,6 @@ describe("Node package entrypoint", () => {
 		await expect(runServer()).rejects.toThrow(
 			"HEVY_API_KEY is invalid or expired",
 		);
-		expect(testDoubles.setTelemetryUser).toHaveBeenCalledWith("invalid-key");
 		expect(testDoubles.startStreamableHttpServer).not.toHaveBeenCalled();
 		expect(testDoubles.recordSessionTermination).toHaveBeenCalledWith(
 			"startup_failure",
@@ -491,15 +321,8 @@ describe("Node package entrypoint", () => {
 		process.env.HEVY_API_KEY = "runtime-key";
 
 		await runStdioServer();
-		expect(testDoubles.setTelemetryUser).toHaveBeenNthCalledWith(
-			1,
-			"runtime-key",
-		);
 
-		expect(testDoubles.serverStartups.add).toHaveBeenCalledWith(1, {
-			version: "3.4.1",
-		});
-		expect(testDoubles.instrumentTransport).toHaveBeenCalledOnce();
+		expect(testDoubles.hardenTransport).toHaveBeenCalledOnce();
 		expect(testDoubles.server.connect).toHaveBeenCalledWith(
 			testDoubles.transport,
 		);
@@ -526,23 +349,19 @@ describe("Node package entrypoint", () => {
 		expect(testDoubles.recordSessionTermination).toHaveBeenCalledWith(
 			"connect_failure",
 		);
-		expect(testDoubles.span.setStatus).toHaveBeenCalledWith({
-			code: SpanStatusCode.ERROR,
-		});
 		expect(testDoubles.installGracefulShutdown).not.toHaveBeenCalled();
 	});
 
-	it("reports graceful completion and flushes telemetry", async () => {
+	it("reports graceful completion through the session lifecycle", async () => {
 		process.env.HEVY_API_KEY = "runtime-key";
 		await runStdioServer();
 		const options = testDoubles.installGracefulShutdown.mock.calls[0]?.[0] as {
-			onComplete: (succeeded: boolean) => Promise<void>;
+			onComplete: (succeeded: boolean) => void;
 		};
 
-		await options.onComplete(true);
+		options.onComplete(true);
 
 		expect(testDoubles.resolveTerminationCategory).toHaveBeenCalledWith(true);
 		expect(testDoubles.recordSessionTermination).toHaveBeenCalledWith("clean");
-		expect(testDoubles.flushTelemetry).toHaveBeenCalledOnce();
 	});
 });
