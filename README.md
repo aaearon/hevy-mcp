@@ -519,6 +519,43 @@ This Node HTTP mode is distinct from the stateless Cloudflare Worker HTTP
 endpoint described above: the Node server owns stateful client sessions, while
 the Worker is designed for hosted deployment and does not import Node code.
 
+### Self-hosted OAuth (`--transport http+oauth`)
+
+`--transport http+oauth` runs the Node server as a password-gated OAuth 2.1
+authorization server **and** an MCP resource server, so a self-hosted instance
+behind a reverse proxy can be added to Claude as a remote Connector. It is a
+fork-specific alternative to the Cloudflare Worker: the Hevy API key stays in
+`HEVY_API_KEY` on the server, and `MCP_AUTH_PASSWORD` is what gates who may
+complete an authorization.
+
+```bash
+MCP_ISSUER_URL=https://mcp.example.com \
+MCP_AUTH_PASSWORD=your-shared-password \
+HEVY_API_KEY=your-hevy-api-key \
+OAUTH_DB_PATH=/data/oauth.db \
+  npx hevy-mcp --transport http+oauth --host 0.0.0.0 --port 8000
+```
+
+| Setting             | Default        | Notes                                                                                      |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------ |
+| `MCP_ISSUER_URL`    | None; required | Public base URL of this server. Also settable with `--issuer-url=URL`.                     |
+| `MCP_AUTH_PASSWORD` | None           | Password shown on the consent form. **Unset or empty rejects every login** (fails closed). |
+| `OAUTH_DB_PATH`     | `./oauth.db`   | SQLite file holding registered clients and tokens so grants survive restarts.              |
+
+The server implements dynamic client registration (RFC 7591), the authorization
+code flow with **mandatory PKCE (S256)**, refresh-token rotation, token
+revocation (RFC 7009), and RFC 8414 / RFC 9728 discovery documents:
+
+- `GET /.well-known/oauth-authorization-server`
+- `GET /.well-known/oauth-protected-resource/mcp`
+- `POST /register`, `GET /authorize`, `POST /consent`, `POST /token`, `POST /revoke`
+- `ALL /mcp` — requires a `Bearer` access token; unauthenticated requests get
+  `401` with a `WWW-Authenticate` challenge pointing at the metadata document.
+
+`Dockerfile.oauth` and `docker-compose.yml` in the repository root build this
+mode (published on `8012` → container `8000`, with the OAuth database on a named
+volume at `/data`); `deploy/traefik-hevy-mcp.yml` is an example Traefik route.
+
 ### Cache behavior
 
 `search-exercise-templates` and `hevy://exercise-templates` share a

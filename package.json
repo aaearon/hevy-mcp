@@ -127,6 +127,7 @@
 		"node": ">=20.0.0"
 	},
 	"allowScripts": {
+		"better-sqlite3@12.11.1": true,
 		"es5-ext@0.10.64": true,
 		"esbuild@0.28.1": true,
 		"fsevents@2.3.3": true,

@@ -4,6 +4,8 @@
 
 # Docker must still be able to read the build definition and ignore rules.
 !Dockerfile
+# Fork-specific http+oauth image.
+!Dockerfile.oauth
 !.dockerignore
 
 # Standalone build inputs.
