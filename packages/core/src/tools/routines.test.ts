@@ -27,6 +27,11 @@ function handler(tool: { mock: { calls: unknown[][] } }, name: string) {
 	) => Promise<Record<string, unknown>>;
 }
 
+function renderedJson(response: Record<string, unknown>): unknown {
+	const [first] = response.content as { text: string }[];
+	return JSON.parse(first.text);
+}
+
 const routineInput = {
 	routine: {
 		title: "Push",
@@ -160,6 +165,73 @@ describe("routine tools", () => {
 				routine: expect.objectContaining({ title: "Push" }),
 			}),
 		);
+	});
+
+	it("unwraps the wrapped-array routine returned by create and update", async () => {
+		// Regression: POST /v1/routines and PUT /v1/routines/:id actually respond
+		// with `{ routine: [Routine] }`, even though the generated types claim a
+		// bare Routine. Without unwrapping, both mutations returned an empty
+		// object to the caller.
+		const created = {
+			id: "r1",
+			title: "Push",
+			folder_id: 3,
+			exercises: [],
+		};
+		const client = {
+			createRoutine: vi.fn().mockResolvedValue({ routine: [created] }),
+			updateRoutine: vi.fn().mockResolvedValue({ routine: [created] }),
+		} as unknown as HevyClient;
+		const tool = register(client);
+
+		const createResponse = await handler(tool, "create-routine")(routineInput);
+		const updateResponse = await handler(
+			tool,
+			"update-routine",
+		)({
+			routine_id: "r1",
+			routine: { title: "Push", exercises: routineInput.routine.exercises },
+		});
+
+		expect(createResponse).not.toMatchObject({ isError: true });
+		expect(updateResponse).not.toMatchObject({ isError: true });
+		expect(renderedJson(createResponse)).toMatchObject({
+			id: "r1",
+			title: "Push",
+			folder_id: 3,
+		});
+		expect(renderedJson(updateResponse)).toMatchObject({
+			id: "r1",
+			title: "Push",
+			folder_id: 3,
+		});
+	});
+
+	it("unwraps a singular routine wrapper and a bare routine body", async () => {
+		const created = { id: "r2", title: "Pull", exercises: [] };
+		const client = {
+			createRoutine: vi.fn().mockResolvedValue({ routine: created }),
+			updateRoutine: vi.fn().mockResolvedValue(created),
+		} as unknown as HevyClient;
+		const tool = register(client);
+
+		const createResponse = await handler(tool, "create-routine")(routineInput);
+		const updateResponse = await handler(
+			tool,
+			"update-routine",
+		)({
+			routine_id: "r2",
+			routine: { title: "Pull", exercises: routineInput.routine.exercises },
+		});
+
+		expect(renderedJson(createResponse)).toMatchObject({
+			id: "r2",
+			title: "Pull",
+		});
+		expect(renderedJson(updateResponse)).toMatchObject({
+			id: "r2",
+			title: "Pull",
+		});
 	});
 
 	it("rejects legacy camelCase envelopes before invoking the client", () => {

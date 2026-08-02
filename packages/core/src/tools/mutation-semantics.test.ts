@@ -57,7 +57,7 @@ describe("mutation semantics", () => {
 				},
 				"create",
 			).payload.exercises?.[0]?.sets?.[0],
-		).toHaveProperty("rep_range", null);
+		).not.toHaveProperty("rep_range");
 		expect(
 			buildRoutinePayload(
 				{
@@ -70,6 +70,37 @@ describe("mutation semantics", () => {
 				"update",
 			).payload.exercises?.[0]?.sets?.[0],
 		).not.toHaveProperty("rep_range");
+	});
+
+	it("omits rep_range entirely when a create set has no range", () => {
+		// Regression: the Hevy API rejects `rep_range: null` on POST /v1/routines
+		// with "rep_range must be of type object", which broke every reps-only
+		// set and every warmup set. The key must be absent, not null.
+		const input: RoutinePayloadInput = {
+			title: "Routine",
+			folder_id: null,
+			notes: undefined,
+			exercises: [
+				{
+					exercise_template_id: "bench",
+					superset_id: null,
+					rest_seconds: undefined,
+					notes: undefined,
+					sets: [
+						{ type: "warmup", reps: 10 },
+						{ type: "normal", reps: 8, weight_kg: 60 },
+						{ type: "normal", rep_range: { start: 8, end: 12 } },
+					],
+				},
+			],
+		};
+
+		const sets = buildRoutinePayload(input, "create").payload.exercises?.[0]
+			?.sets;
+
+		expect(sets?.[0]).not.toHaveProperty("rep_range");
+		expect(sets?.[1]).not.toHaveProperty("rep_range");
+		expect(sets?.[2]).toHaveProperty("rep_range", { start: 8, end: 12 });
 	});
 
 	it("derives fixed reps and preserves routine metrics", () => {
