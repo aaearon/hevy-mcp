@@ -44,6 +44,29 @@ export interface HttpServerHandle {
 	server: Server;
 }
 
+/**
+ * Optional hooks used by the fork's `http+oauth` transport so the OAuth
+ * authorization-server routes and bearer gate reuse this server (and its MCP
+ * session lifecycle) instead of running a second parallel HTTP server.
+ */
+export interface HttpServerExtensions {
+	/** Extra hostnames accepted in the `Host` header (e.g. the OAuth issuer). */
+	allowedHosts?: string[];
+	/** Serve a non-MCP route. Resolve `true` when the request was answered. */
+	handleRequest?(
+		request: IncomingMessage,
+		response: ServerResponse,
+	): Promise<boolean>;
+	/**
+	 * Authorize an `/mcp` request. Resolve `true` to allow; otherwise the hook
+	 * must have written the refusal response itself.
+	 */
+	authorize?(
+		request: IncomingMessage,
+		response: ServerResponse,
+	): Promise<boolean>;
+}
+
 class HttpRequestError extends Error {
 	readonly statusCode: number;
 
@@ -89,6 +112,7 @@ function validateHostHeader(
 	allowedHosts: Set<string>,
 	port: number,
 	allowAnyHostname = false,
+	extraHosts: ReadonlySet<string> = new Set(),
 ): boolean {
 	const header = request.headers.host;
 	if (!header || Array.isArray(header)) return false;
@@ -99,15 +123,21 @@ function validateHostHeader(
 			parsed.password ||
 			parsed.pathname !== "/" ||
 			parsed.search ||
-			parsed.hash ||
-			(!allowAnyHostname && (parsed.port ? Number(parsed.port) : 80) !== port)
+			parsed.hash
 		) {
 			return false;
 		}
-		return (
-			allowAnyHostname ||
-			allowedHosts.has(normalizeHost(parsed.hostname).toLowerCase())
-		);
+		const hostname = normalizeHost(parsed.hostname).toLowerCase();
+		// Explicitly configured public hostnames (e.g. an OAuth issuer behind a
+		// reverse proxy) are port-agnostic: the proxy terminates on 443.
+		if (extraHosts.has(hostname)) return true;
+		if (
+			!allowAnyHostname &&
+			(parsed.port ? Number(parsed.port) : 80) !== port
+		) {
+			return false;
+		}
+		return allowAnyHostname || allowedHosts.has(hostname);
 	} catch {
 		return false;
 	}
@@ -209,6 +239,7 @@ export async function startStreamableHttpServer(
 	options: NodeCliOptions,
 	apiKey: string,
 	createMcpServer: McpServerFactory,
+	extensions?: HttpServerExtensions,
 ): Promise<HttpServerHandle> {
 	const wildcard =
 		options.host === "0.0.0.0" ||
@@ -216,7 +247,12 @@ export async function startStreamableHttpServer(
 		options.host === "[::]";
 	const loopback = isLoopbackHost(options.host);
 	const bearerToken = process.env[HTTP_BEARER_TOKEN];
-	if (!loopback && !bearerToken) {
+	const extraHosts = new Set(
+		(extensions?.allowedHosts ?? []).map((host) =>
+			normalizeHost(host).toLowerCase(),
+		),
+	);
+	if (!loopback && !bearerToken && !extensions?.authorize) {
 		throw new Error(
 			`Non-loopback HTTP mode requires ${HTTP_BEARER_TOKEN} to protect the shared Hevy account.`,
 		);
@@ -290,22 +326,31 @@ export async function startStreamableHttpServer(
 		request: IncomingMessage,
 		response: ServerResponse,
 	): Promise<void> {
-		if (request.url?.split("?", 1)[0] !== MCP_PATH) {
-			writeJson(response, 404, "Not found");
-			return;
-		}
 		if (
 			!validateHostHeader(
 				request,
 				hostNamesFor(options),
 				expectedPort(options, server),
 				wildcard,
+				extraHosts,
 			)
 		) {
 			writeJson(response, 403, "Invalid Host header");
 			return;
 		}
-		if (!loopback && !isBearerAuthorized(request, bearerToken)) {
+		if (
+			extensions?.handleRequest &&
+			(await extensions.handleRequest(request, response))
+		) {
+			return;
+		}
+		if (request.url?.split("?", 1)[0] !== MCP_PATH) {
+			writeJson(response, 404, "Not found");
+			return;
+		}
+		if (extensions?.authorize) {
+			if (!(await extensions.authorize(request, response))) return;
+		} else if (!loopback && !isBearerAuthorized(request, bearerToken)) {
 			writeJson(response, 401, "Authorization required");
 			return;
 		}

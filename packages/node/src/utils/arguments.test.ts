@@ -58,6 +58,52 @@ describe("parseNodeCliOptions", () => {
 		},
 	);
 
+	it("parses the fork-specific http+oauth transport", () => {
+		expect(
+			parseNodeCliOptions(
+				[
+					"--transport=http+oauth",
+					"--port=8000",
+					"--issuer-url=https://mcp.example.com/",
+				],
+				{},
+			),
+		).toEqual({
+			transport: "http+oauth",
+			host: "127.0.0.1",
+			port: 8000,
+			issuerUrl: "https://mcp.example.com",
+		});
+	});
+
+	it("falls back to MCP_ISSUER_URL for http+oauth", () => {
+		expect(
+			parseNodeCliOptions(["--transport", "http+oauth"], {
+				MCP_ISSUER_URL: "https://mcp.example.com",
+			}),
+		).toMatchObject({
+			transport: "http+oauth",
+			issuerUrl: "https://mcp.example.com",
+		});
+	});
+
+	it("requires an issuer URL for http+oauth", () => {
+		expect(() =>
+			parseNodeCliOptions(["--transport", "http+oauth"], {}),
+		).toThrow("requires --issuer-url or MCP_ISSUER_URL");
+	});
+
+	it("rejects a malformed issuer URL", () => {
+		for (const issuer of ["not-a-url", "ftp://example.com"]) {
+			expect(() =>
+				parseNodeCliOptions(
+					["--transport", "http+oauth", "--issuer-url", issuer],
+					{},
+				),
+			).toThrow("Invalid issuer URL");
+		}
+	});
+
 	it("accepts bracketed IPv6 input and normalizes it for listen", () => {
 		expect(
 			parseNodeCliOptions(["--transport", "http", "--host", "[::1]"]),

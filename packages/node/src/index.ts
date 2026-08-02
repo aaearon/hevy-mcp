@@ -20,7 +20,12 @@ import { createHevyMcpServer, createSafeErrorDiagnostic } from "@hevy-mcp/core";
 import { createHevyClient, isHevyHttpError } from "@hevy-mcp/hevy-client";
 import { assertApiKey, parseConfig } from "./utils/config.js";
 import { parseNodeCliOptions, type NodeTransport } from "./utils/arguments.js";
-import { startStreamableHttpServer } from "./utils/streamable-http.js";
+import {
+	startStreamableHttpServer,
+	type HttpServerExtensions,
+} from "./utils/streamable-http.js";
+import { createOAuthHttpExtensions } from "./utils/oauth-http.js";
+import { SqliteOAuthProvider } from "./utils/oauth-provider.js";
 import { installGracefulShutdown } from "./utils/graceful-shutdown.js";
 import {
 	createNodeCacheObserver,
@@ -46,14 +51,18 @@ const HELP_TEXT = [
 	"Options:",
 	"  -h, --help                 Show this help message and exit",
 	"  -v, --version              Show version and exit",
-	"  --transport stdio|http     Select the transport (default: stdio)",
+	"  --transport <transport>    stdio, http or http+oauth (default: stdio)",
 	"  --host <host>              HTTP bind host (default: 127.0.0.1)",
 	"  --port <port>              HTTP bind port (default: 3000)",
+	"  --issuer-url <url>         Public base URL (required for http+oauth)",
 	"",
 	"Environment:",
 	"  HEVY_API_KEY=<api-key>     Hevy API key from Hevy app settings",
 	"  HEVY_MCP_DEBUG=1           Enable verbose diagnostics on stderr",
 	"  HEVY_MCP_HTTP_BEARER_TOKEN Protect non-loopback HTTP deployments",
+	"  MCP_ISSUER_URL             Public base URL for http+oauth",
+	"  MCP_AUTH_PASSWORD          Consent password for http+oauth (fails closed)",
+	"  OAUTH_DB_PATH              OAuth SQLite path (default: ./oauth.db)",
 	"  HEVY_MCP_TELEMETRY=0     Disable all project telemetry",
 	"",
 	"Examples:",
@@ -610,10 +619,20 @@ export async function runServer(): Promise<void> {
 				assertApiKey(cfg.apiKey);
 				setTelemetryUser(cfg.apiKey);
 				await validateApiKey(cfg.apiKey);
+				let extensions: HttpServerExtensions | undefined;
+				if (options.transport === "http+oauth" && options.issuerUrl) {
+					extensions = createOAuthHttpExtensions({
+						issuerUrl: options.issuerUrl,
+						provider: new SqliteOAuthProvider({
+							issuerUrl: options.issuerUrl,
+						}),
+					});
+				}
 				const handle = await startStreamableHttpServer(
 					options,
 					cfg.apiKey,
 					(params) => Promise.resolve(buildServer(params.apiKey, "http")),
+					extensions,
 				);
 				listening = true;
 				console.error(

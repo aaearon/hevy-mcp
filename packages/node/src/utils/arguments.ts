@@ -1,12 +1,19 @@
 import { isIP } from "node:net";
 
-export type NodeTransport = "stdio" | "http";
+export type NodeTransport = "stdio" | "http" | "http+oauth";
 
 export interface NodeCliOptions {
 	transport: NodeTransport;
 	host: string;
 	port: number;
+	/**
+	 * Public base URL of this server, required by `--transport http+oauth`.
+	 * Falls back to `MCP_ISSUER_URL`.
+	 */
+	issuerUrl?: string;
 }
+
+const TRANSPORTS: readonly NodeTransport[] = ["stdio", "http", "http+oauth"];
 
 const DEFAULT_HOST = "127.0.0.1";
 const DEFAULT_PORT = 3000;
@@ -58,44 +65,74 @@ function parsePort(value: string): number {
 	return port;
 }
 
-export function parseNodeCliOptions(args: string[]): NodeCliOptions {
+function parseIssuerUrl(value: string): string {
+	let url: URL;
+	try {
+		url = new URL(value);
+	} catch {
+		throw new Error(`Invalid issuer URL: ${value}. Provide an absolute URL.`);
+	}
+	if (url.protocol !== "http:" && url.protocol !== "https:") {
+		throw new Error(`Invalid issuer URL: ${value}. Use http or https.`);
+	}
+	return url.origin + url.pathname.replace(/\/+$/u, "");
+}
+
+export function parseNodeCliOptions(
+	args: string[],
+	env: NodeJS.ProcessEnv = process.env,
+): NodeCliOptions {
 	let transport: NodeTransport = "stdio";
 	let host = DEFAULT_HOST;
 	let port = DEFAULT_PORT;
+	let issuerUrl: string | undefined;
 	let transportExplicit = false;
 	let hostExplicit = false;
 	let portExplicit = false;
 
 	for (let index = 0; index < args.length; index += 1) {
-		const arg = args[index];
-		if (!arg || ["--help", "-h", "--version", "-v"].includes(arg)) {
+		const raw = args[index];
+		if (!raw || ["--help", "-h", "--version", "-v"].includes(raw)) {
 			continue;
 		}
+		// Support both `--option value` and `--option=value`.
+		const separator = raw.indexOf("=");
+		const arg = separator > 0 ? raw.slice(0, separator) : raw;
+		const inlineValue = separator > 0 ? raw.slice(separator + 1) : undefined;
+		const takeValue = (): string => {
+			if (inlineValue !== undefined) {
+				if (!inlineValue) throw new Error(`${arg} requires a value.`);
+				return inlineValue;
+			}
+			const value = valueAfter(args, index, arg);
+			index += 1;
+			return value;
+		};
 		switch (arg) {
 			case "--transport": {
-				const value = valueAfter(args, index, arg);
-				index += 1;
-				if (value !== "stdio" && value !== "http") {
+				const value = takeValue();
+				if (!TRANSPORTS.includes(value as NodeTransport)) {
 					throw new Error(
-						`Invalid transport: ${value}. Use either stdio or http.`,
+						`Invalid transport: ${value}. Use stdio, http, or http+oauth.`,
 					);
 				}
-				transport = value;
+				transport = value as NodeTransport;
 				transportExplicit = true;
 				break;
 			}
 			case "--host":
-				host = parseHost(valueAfter(args, index, arg));
+				host = parseHost(takeValue());
 				hostExplicit = true;
-				index += 1;
 				break;
 			case "--port":
-				port = parsePort(valueAfter(args, index, arg));
+				port = parsePort(takeValue());
 				portExplicit = true;
-				index += 1;
+				break;
+			case "--issuer-url":
+				issuerUrl = parseIssuerUrl(takeValue());
 				break;
 			default:
-				throw new Error(`Unknown option: ${arg}`);
+				throw new Error(`Unknown option: ${raw}`);
 		}
 	}
 
@@ -107,5 +144,14 @@ export function parseNodeCliOptions(args: string[]): NodeCliOptions {
 	if (transport === "stdio" && transportExplicit) {
 		return { transport, host: DEFAULT_HOST, port: DEFAULT_PORT };
 	}
-	return { transport, host, port };
+	if (transport === "http+oauth") {
+		const configured = issuerUrl ?? env.MCP_ISSUER_URL;
+		if (!configured) {
+			throw new Error(
+				"--transport http+oauth requires --issuer-url or MCP_ISSUER_URL.",
+			);
+		}
+		return { transport, host, port, issuerUrl: parseIssuerUrl(configured) };
+	}
+	return { transport, host, port, issuerUrl };
 }

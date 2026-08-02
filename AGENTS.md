@@ -171,6 +171,89 @@ forms are unsupported and insecure.
 - Integration tests will fail (by design)
 - API client functionality cannot be tested
 
+## HTTP+OAuth Transport (fork-specific)
+
+`--transport=http+oauth` turns the Node package into a password-gated OAuth 2.1
+authorization server **and** MCP resource server, so this deployment can be
+registered as a claude.ai Connector behind a reverse proxy. This is specific to
+this fork; upstream `chrisdoc/hevy-mcp` only has OAuth in the Cloudflare Worker.
+
+Implementation (all in `packages/node/src/utils/`):
+
+| File                | Responsibility                                                                                                       |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `oauth-provider.ts` | `SqliteOAuthProvider`: dynamic client registration, PKCE auth codes, token rotation, revocation, `verifyAccessToken` |
+| `oauth-consent.ts`  | Password consent page: HTML escaping, constant-time password check                                                   |
+| `oauth-http.ts`     | Authorization-server routes + bearer gate, wired in as `HttpServerExtensions`                                        |
+
+`packages/core` stays runtime-neutral: no OAuth code lives there.
+
+**MCP SDK note (important).** `@modelcontextprotocol/server` v2 removed the v1
+`mcpAuthRouter` Express router and the `OAuthServerProvider` interface. Only
+`requireBearerAuth` / `verifyBearerToken` / `bearerAuthChallengeResponse`,
+`buildOAuthProtectedResourceMetadata` and the `OAuthTokenVerifier` interface
+survive, all of them framework-free. The authorization-server endpoints
+(`/authorize`, `/token`, `/register`, `/revoke`, `/consent`) are therefore
+implemented here on `node:http`, and Express is no longer a dependency. The
+MCP session lifecycle is **not** duplicated: `oauth-http.ts` plugs into
+`startStreamableHttpServer` in `streamable-http.ts` through the optional
+`HttpServerExtensions` hooks (`allowedHosts`, `handleRequest`, `authorize`).
+
+### Endpoints
+
+- `GET /.well-known/oauth-authorization-server` — RFC 8414 metadata
+- `GET /.well-known/oauth-protected-resource[/mcp]` — RFC 9728 metadata
+- `POST /register` — RFC 7591 dynamic client registration
+- `GET /authorize` — renders the consent page (PKCE S256 required)
+- `POST /consent` — password check, then 302 back with the authorization code
+- `POST /token` — `authorization_code` and `refresh_token` grants
+- `POST /revoke` — RFC 7009, revokes the whole token family
+- `ALL /mcp` — Streamable HTTP, gated by `Bearer` access tokens
+
+### Environment variables
+
+- `MCP_ISSUER_URL` — public base URL of this server (e.g.
+  `https://mcp.example.com`). Required for `http+oauth`; also settable with
+  `--issuer-url=URL`.
+- `MCP_AUTH_PASSWORD` — password shown on the consent form. **Fails closed:**
+  when unset or empty, every login is rejected.
+- `OAUTH_DB_PATH` — SQLite database file holding clients, codes and tokens so
+  grants survive restarts (default: `./oauth.db`).
+
+### Security invariants (do not regress)
+
+- PKCE with `code_challenge_method=S256` is mandatory on `/authorize`, and the
+  verifier is re-derived and compared on `/token`.
+- Authorization codes and refresh tokens are single-use; refresh rotates the
+  family, and revocation drops the family.
+- Passwords and client secrets are compared in constant time.
+- Access and refresh tokens are never logged.
+- Consent HTML is escaped (`escapeHtml`), and CORS is allowlisted to
+  `claude.ai` / `claude.com` origins only.
+
+### Running it
+
+```bash
+MCP_ISSUER_URL=http://localhost:3000 MCP_AUTH_PASSWORD=secret HEVY_API_KEY=xxx \
+  node packages/node/dist/cli.mjs --transport=http+oauth --port=3000
+
+curl http://localhost:3000/.well-known/oauth-authorization-server | jq .
+# Unauthenticated MCP requests must return 401:
+curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/mcp \
+  -H "Content-Type: application/json" -d '{}'
+```
+
+### Docker
+
+`Dockerfile.oauth` + `docker-compose.yml` (port `8012` → `8000`, named volume
+at `/data`, `OAUTH_DB_PATH=/data/oauth.db`) provide the deployment.
+`deploy/traefik-hevy-mcp.yml` is the reverse-proxy route. Upstream's own
+`Dockerfile` is untouched: it uses `npm run build:standalone`, which cannot
+bundle `better-sqlite3` (a native addon), so `Dockerfile.oauth` uses the normal
+build plus a production `node_modules` tree instead. For the same reason
+`oauth-provider.ts` loads `better-sqlite3` lazily through `createRequire`, which
+keeps it out of the standalone bundle stdio users run.
+
 ### Node.js Version
 
 - **Supported:** Node.js >= 24
