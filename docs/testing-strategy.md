@@ -94,7 +94,7 @@ record a new merged-main baseline after fixing the denominator.
 | Area                   | Current evidence                                     | Strength to preserve                                                                                    |
 | ---------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | Test runner            | `vitest.config.ts`, `package.json`                   | Fast TypeScript-native Vitest suite with V8 coverage.                                                   |
-| Unit/component tests   | `packages/*/src/**/*.test.ts`, `tests/unit/`         | Broad coverage of tools, utilities, schemas, CLI behavior, telemetry, shutdown, and manifests.          |
+| Unit/component tests   | `packages/*/src/**/*.test.ts`, `tests/unit/`         | Broad coverage of tools, utilities, schemas, CLI behavior, shutdown, and manifests.                     |
 | Mocked MCP integration | `tests/integration/mocked/`                          | Real SDK `Client`, `McpServer`, and `InMemoryTransport` with Nock at the Axios HTTP seam.               |
 | Live Vitest canary     | `tests/integration/hevy-mcp.integration.test.ts`     | Read-only validation against the real API, skipped without `HEVY_API_KEY`.                              |
 | Process-level nightly  | `tests/nightly/test_hevy_mcp.mjs`                    | Real stdio JSON-RPC against `npx`, `bunx`, and built source.                                            |
@@ -104,7 +104,7 @@ record a new merged-main baseline after fixing the denominator.
 | Coverage               | `vitest.config.ts`, `codecov.yml`                    | V8/LCOV reports, Codecov project comparison, patch status, generated-code exclusion.                    |
 | Response contracts     | `packages/core/src/utils/response-formatter.ts`      | Co-located Zod output schemas, raw-to-public formatting, legacy text projection, and response assembly. |
 | Prompts/resources      | `packages/core/src/{prompts,resources}/`             | Dedicated registrations and focused tests; resource calls also have mocked MCP coverage.                |
-| SDK-sensitive stdio    | `packages/node/src/utils/stdio-observability.ts`     | Private SDK access is isolated and has focused buffering/protocol regression tests.                     |
+| SDK-sensitive stdio    | `packages/node/src/utils/stdio-parsing.ts`           | Private SDK access is isolated and has focused buffering/protocol regression tests.                     |
 
 This strategy builds on completed work rather than restarting it:
 
@@ -115,7 +115,7 @@ This strategy builds on completed work rather than restarting it:
   integration with Nock in deterministic CI.
 - [#413](https://github.com/chrisdoc/hevy-mcp/issues/413) and
   [#437](https://github.com/chrisdoc/hevy-mcp/pull/437) hardened SDK-private
-  stdio observability behavior.
+  stdio parsing behavior.
 - [#422](https://github.com/chrisdoc/hevy-mcp/issues/422) and
   [#426](https://github.com/chrisdoc/hevy-mcp/pull/426) added `bunx` nightly
   coverage.
@@ -232,7 +232,7 @@ of every tool, resource, and prompt. For each applicable item it must validate:
 - Stateful multi-call scenarios cover cache warm-up, repeated reads, invalidation
   where supported, cross-test/client isolation, concurrency, and cleanup.
 - Every MCP TypeScript SDK upgrade is gated by MCP contract, built stdio,
-  and `packages/node/src/utils/stdio-observability.test.ts` because that module intentionally
+  and `packages/node/src/utils/stdio-parsing.test.ts` because that module intentionally
   isolates private SDK stdio internals.
 
 ## Data integrity and upstream drift strategy
@@ -269,7 +269,7 @@ of every tool, resource, and prompt. For each applicable item it must validate:
 | Layer                       | Purpose                                                    |                      Pull request                      |          Nightly/manual          |                      Release                       |
 | --------------------------- | ---------------------------------------------------------- | :----------------------------------------------------: | :------------------------------: | :------------------------------------------------: |
 | Static/build                | Format, lint, types, manifest, build, changeset            |              Required, Node policy matrix              | Optional scheduled compatibility |                      Required                      |
-| Unit/component              | Pure logic, tools with fakes, schemas, errors, telemetry   |                        Required                        |                —                 |          Required through PR/main result           |
+| Unit/component              | Pure logic, tools with fakes, schemas, and errors          |                        Required                        |                —                 |          Required through PR/main result           |
 | Mocked HTTP + in-memory MCP | Complete deterministic MCP contract over Nock              |                  Required, no secrets                  |    Optional diagnostic rerun     |          Required through PR/main result           |
 | Built stdio                 | Spawn `dist/cli.mjs`; protocol purity and lifecycle        |                Required on primary Node                |  Optional compatibility matrix   |                      Required                      |
 | Packed tarball smoke        | `npm pack`, install tarball, spawn binary, inspect package |                Required on primary Node                |  Optional npm/Bun compatibility  |                      Required                      |
@@ -367,7 +367,7 @@ percentage: `packages/node/src/index.ts`, `packages/node/src/cli.ts`,
 `packages/hevy-client/src/hevy-client-kubb.ts`,
 `packages/core/src/utils/error-handler.ts`,
 `packages/core/src/utils/response-formatter.ts`,
-`packages/node/src/utils/stdio-observability.ts`, cache/catalog behavior, and every mutation
+`packages/node/src/utils/stdio-parsing.ts`, cache/catalog behavior, and every mutation
 tool. Critical branch/error behavior should be enumerated even when aggregate
 coverage is already high.
 

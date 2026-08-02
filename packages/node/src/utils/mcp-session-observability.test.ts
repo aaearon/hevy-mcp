@@ -1,7 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	createMcpSessionContext,
+	extractMcpClientMetadata,
+	getCurrentMcpClientMetadata,
 	getCurrentMcpSessionId,
+	getCurrentMcpTransport,
 	recordMcpSessionStart,
 	recordMcpSessionTermination,
 	recordMcpToolFailure,
@@ -10,23 +13,13 @@ import {
 	runWithMcpSessionContext,
 } from "./mcp-session-observability.js";
 
-const testDoubles = vi.hoisted(() => ({
-	sessionStartedAdd: vi.fn(),
-	sessionEndedAdd: vi.fn(),
-}));
-
-vi.mock("./metrics.js", () => ({
-	sessionStarted: { add: testDoubles.sessionStartedAdd },
-	sessionEnded: { add: testDoubles.sessionEndedAdd },
-}));
-
-describe("MCP session tool observations", () => {
+describe("MCP session context", () => {
 	beforeEach(() => {
 		recordMcpSessionTermination("unknown");
 		vi.clearAllMocks();
 	});
 
-	it("buckets observed calls and terminates failed sessions as tool failures", () => {
+	it("tracks tool failures on the active stdio session", () => {
 		recordMcpSessionStart({
 			method: "initialize",
 			params: {
@@ -39,15 +32,47 @@ describe("MCP session tool observations", () => {
 		recordMcpToolFailure();
 
 		expect(resolveSessionTerminationCategory(true)).toBe("tool_failure");
-		recordMcpSessionTermination("tool_failure");
-		expect(testDoubles.sessionEndedAdd).toHaveBeenCalledWith(
-			1,
-			expect.objectContaining({
-				termination_category: "tool_failure",
-				tool_calls_bucket: "1",
-			}),
-		);
 	});
+
+	it("reports a clean termination when no tool failed", () => {
+		recordMcpSessionStart({ method: "initialize" });
+
+		expect(resolveSessionTerminationCategory(true)).toBe("clean");
+		expect(resolveSessionTerminationCategory(false)).toBe("unknown");
+	});
+
+	it("clears the active stdio session on termination", () => {
+		recordMcpSessionStart({
+			method: "initialize",
+			params: {
+				protocolVersion: "2025-11-25",
+				clientInfo: { name: "Claude-Desktop", version: "1.2.3" },
+			},
+		});
+		expect(getCurrentMcpClientMetadata().name).toBe("Claude-Desktop");
+
+		recordMcpSessionTermination("clean");
+
+		expect(getCurrentMcpClientMetadata().name).toBe("unknown");
+		expect(getCurrentMcpTransport()).toBe("stdio");
+	});
+
+	it("returns sanitized client metadata from initialize", () => {
+		expect(
+			extractMcpClientMetadata({
+				method: "initialize",
+				params: {
+					protocolVersion: "2025-11-25",
+					clientInfo: { name: "a".repeat(65), version: "1.2.3" },
+				},
+			}),
+		).toEqual({
+			name: "unknown",
+			version: "1.2.3",
+			protocolVersion: "2025-11-25",
+		});
+	});
+
 	it("isolates opaque IDs across sessions and propagates the active ID", () => {
 		const first = createMcpSessionContext({ method: "initialize" }, "http", {
 			telemetrySessionId: "session-one",
@@ -63,38 +88,22 @@ describe("MCP session tool observations", () => {
 		expect(
 			runWithMcpSessionContext(second, () => getCurrentMcpSessionId()),
 		).toBe("session-two");
-		runWithMcpSessionContext(first, () =>
-			recordMcpSessionStart({}, "http", first),
-		);
-		expect(testDoubles.sessionStartedAdd.mock.calls.flat()).not.toContain(
-			"session-one",
-		);
 	});
-	it("keeps telemetry session IDs out of metric attributes", () => {
-		const context = createMcpSessionContext(
-			{
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-11-25",
-					clientInfo: { name: "Private Client", version: "1.2.3" },
-				},
-			},
-			"http",
-			{ telemetrySessionId: "session-secret" },
-		);
+
+	it("keeps an HTTP session scoped to its own async context", () => {
+		const context = createMcpSessionContext({ method: "initialize" }, "http", {
+			telemetrySessionId: "session-http",
+		});
 
 		runWithMcpSessionContext(context, () => {
 			recordMcpSessionStart({}, "http", context);
-			recordMcpSessionTermination("clean", context);
+			expect(getCurrentMcpTransport()).toBe("http");
 		});
 
-		expect(
-			JSON.stringify([
-				testDoubles.sessionStartedAdd.mock.calls,
-				testDoubles.sessionEndedAdd.mock.calls,
-			]),
-		).not.toContain("session-secret");
+		// HTTP sessions never become the process-wide stdio fallback.
+		expect(getCurrentMcpSessionId()).toBeUndefined();
 	});
+
 	it("generates one injectable opaque ID per session", () => {
 		const generate = vi.fn(() => "generated-session");
 		const context = createMcpSessionContext({ method: "initialize" }, "stdio", {

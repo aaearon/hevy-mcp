@@ -1,7 +1,5 @@
 import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
-import { sessionEnded, sessionStarted } from "./metrics.js";
-import { bucketCount } from "./result-telemetry.js";
 
 export const MCP_SESSION_TERMINATION_CATEGORIES = [
 	"clean",
@@ -135,14 +133,6 @@ function metadataAttributes(
 	};
 }
 
-function durationBucket(durationMs: number): string {
-	if (durationMs < 1_000) return "<1s";
-	if (durationMs < 10_000) return "1-10s";
-	if (durationMs < 60_000) return "10-60s";
-	if (durationMs < 300_000) return "1-5m";
-	return "5m+";
-}
-
 export function recordMcpSessionStart(
 	message: unknown,
 	transport: McpTransport = "stdio",
@@ -150,8 +140,6 @@ export function recordMcpSessionStart(
 ): McpClientMetadata {
 	const session = context ?? createMcpSessionContext(message, transport);
 	if (session.transport === "stdio") activeStdioSession = session;
-	const attributes = metadataAttributes(session.metadata, session.transport);
-	sessionStarted.add(1, attributes);
 	return session.metadata;
 }
 
@@ -188,23 +176,9 @@ export function getCurrentMcpTransport(): McpTransport {
 }
 
 export function recordMcpSessionTermination(
-	category: McpSessionTerminationCategory,
+	_category: McpSessionTerminationCategory,
 	context?: McpSessionContext,
 ): void {
-	const session = context ?? getSession();
-	const durationMs = session ? Math.max(0, Date.now() - session.startedAt) : 0;
-	const metadata = session?.metadata ?? {
-		name: UNKNOWN_METADATA,
-		version: UNKNOWN_METADATA,
-		protocolVersion: UNKNOWN_METADATA,
-	};
-	const attributes = {
-		...metadataAttributes(metadata, session?.transport ?? "stdio"),
-		termination_category: category,
-		session_duration_bucket: durationBucket(durationMs),
-		tool_calls_bucket: bucketCount(session?.toolCalls ?? 0),
-	};
-	sessionEnded.add(1, attributes);
 	if (!context || context === activeStdioSession)
 		activeStdioSession = undefined;
 }

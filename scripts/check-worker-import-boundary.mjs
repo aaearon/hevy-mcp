@@ -48,14 +48,11 @@ const nodeBuiltins = new Set([
 const forbiddenSourceFiles = new Set([
 	"packages/node/src/cli.ts",
 	"packages/node/src/index.ts",
-	"packages/node/src/utils/hevy-client-observability.ts",
-	"packages/node/src/utils/metrics.ts",
 	"packages/node/src/utils/mcp-session-observability.ts",
-	"packages/node/src/utils/observability-wrapper.ts",
-	"packages/node/src/utils/stdio-observability.ts",
-	"packages/node/src/utils/telemetry-wrapper.ts",
-	"packages/node/src/utils/telemetry.ts",
+	"packages/node/src/utils/stdio-parsing.ts",
 ]);
+// Runtime telemetry SDKs were removed from the shipped server. Keep them denied
+// so they cannot be reintroduced into the Workers bundle.
 const forbiddenPackages = [
 	"@sentry/node",
 	"@sentry/opentelemetry",

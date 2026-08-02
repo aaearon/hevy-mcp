@@ -12,10 +12,11 @@
   a private workspace orchestrator and must not gain a runtime `src/` tree.
 - API client code is generated from the OpenAPI spec using [Kubb](https://kubb.dev/). **Do not manually edit generated files.**
 - **Type Safety:** The project uses Zod schema inference for type-safe tool parameters, eliminating manual type assertions and ensuring compile-time type safety.
-- **MCP SDK internals sensitivity:** `packages/node/src/utils/stdio-observability.ts`
-  depends on MCP SDK stdio internals (private fields such as `_ondata`/
-  `_readBuffer`) for raw chunk instrumentation. Re-run the stdio observability
-  test suite after any MCP TypeScript SDK package upgrade.
+- **MCP SDK internals sensitivity:** `packages/node/src/utils/stdio-parsing.ts`
+  depends on MCP SDK stdio internals (private fields such as `_readBuffer`/
+  `_buffer`) to skip malformed stdin lines instead of dropping the connection.
+  Re-run the stdio parse hardening test suite after any MCP TypeScript SDK
+  package upgrade.
 
 ## Git & Workflow Standards
 
@@ -248,7 +249,7 @@ Always perform these validation steps after making changes:
 packages/
 ├── hevy-client/       # Runtime-neutral native-fetch client and Kubb output
 ├── core/              # Runtime-neutral MCP construction and tool implementations
-├── node/              # Public Node.js stdio package and telemetry
+├── node/              # Public Node.js stdio package and transports
 └── worker/            # Cloudflare Worker HTTP and OAuth entrypoints
 
 src/                  # Transitional root compatibility facades and legacy tests
@@ -277,7 +278,7 @@ packages/core/src/
 
 `packages/core` and `packages/hevy-client` must remain safe for both Node.js and
 Cloudflare Workers. Keep Node built-ins, stdio transports, process lifecycle
-handling, and telemetry/observability in `packages/node`. Keep Cloudflare
+handling, and stdio parse hardening in `packages/node`. Keep Cloudflare
 bindings and OAuth code in `packages/worker`. The dependency graph is
 `hevy-client → core → node/worker`; runtime packages must never import one
 another.

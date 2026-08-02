@@ -1,41 +1,18 @@
 import { ZodError } from "zod";
-import { SpanStatusCode } from "@opentelemetry/api";
 import { deserializeMessage } from "@modelcontextprotocol/server";
 import type { JSONRPCMessage } from "@modelcontextprotocol/server";
 import type { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { createSafeErrorDiagnostic } from "@hevy-mcp/core";
-import { stdioParseErrors } from "./metrics.js";
-import { tracer } from "./telemetry.js";
-import {
-	getCurrentMcpSessionId,
-	recordMcpSessionStart,
-} from "./mcp-session-observability.js";
-const UTF8_BOM = "\uFEFF";
+import { recordMcpSessionStart } from "./mcp-session-observability.js";
+
+const UTF8_BOM = "﻿";
 /** Maximum escaped characters included in a malformed stdin shape preview. */
 const STDIN_PARSE_SHAPE_PREVIEW_MAX_LENGTH = 200;
-const SAFE_MCP_METHODS: Record<string, true> = {
-	initialize: true,
-	"notifications/initialized": true,
-	"notifications/cancelled": true,
-	ping: true,
-	"tools/call": true,
-	"tools/list": true,
-	"resources/read": true,
-	"resources/list": true,
-	"prompts/get": true,
-	"prompts/list": true,
-};
 const REDACTED_CONTENT_MARKER = "[REDACTED]";
 
 const MAX_MALFORMED_LINES_PER_READ = 100;
 
 function isMalformedMessageError(error: unknown): boolean {
 	return error instanceof SyntaxError || error instanceof ZodError;
-}
-
-export interface StdioChunkSnapshot {
-	lastChunkByteLength: number;
-	lastChunkStartsWithUtf8Bom: boolean;
 }
 
 interface MutableReadBuffer {
@@ -45,11 +22,9 @@ interface MutableReadBuffer {
 
 type MutableStdioServerTransport = {
 	_readBuffer?: MutableReadBuffer;
-	_ondata?: (chunk: Buffer) => void;
 };
 
 interface SdkPrivateStdioAdapter {
-	wrapOnData: (onChunk: (chunk: Buffer) => void) => void;
 	installReadMessageHook: (
 		onReadLine: (line: string) => JSONRPCMessage,
 	) => boolean;
@@ -58,13 +33,13 @@ interface SdkPrivateStdioAdapter {
 /**
  * Adapter boundary around MCP SDK stdio internals.
  *
- * MCP SDK v1.29.0 exposes public message-level hooks but does not expose a
- * public raw-chunk hook on `StdioServerTransport`. To capture chunk metadata,
- * we currently rely on private internals (`_ondata`, `_readBuffer`, `_buffer`)
- * in this one place.
+ * The MCP SDK exposes public message-level hooks but does not expose a public
+ * way to skip a malformed stdin line without tearing down the connection. To
+ * recover from malformed input, we rely on private internals (`_readBuffer`,
+ * `_buffer`) in this one place.
  *
- * If those internals change in a future SDK release, this adapter should fail
- * closed and preserve default transport behavior (no instrumentation patching).
+ * If those internals change in a future SDK release, this adapter fails closed
+ * and preserves default transport behavior (no parse-hardening patching).
  */
 function createSdkPrivateStdioAdapter(
 	transport: StdioServerTransport,
@@ -72,17 +47,6 @@ function createSdkPrivateStdioAdapter(
 	const mutableTransport = transport as unknown as MutableStdioServerTransport;
 
 	return {
-		wrapOnData(onChunk) {
-			const originalOnData = mutableTransport._ondata;
-			if (typeof originalOnData !== "function") {
-				return;
-			}
-
-			mutableTransport._ondata = (chunk: Buffer) => {
-				onChunk(chunk);
-				originalOnData(chunk);
-			};
-		},
 		installReadMessageHook(onReadLine) {
 			const readBuffer = mutableTransport._readBuffer;
 			if (!readBuffer || typeof readBuffer.readMessage !== "function") {
@@ -131,15 +95,6 @@ function createSdkPrivateStdioAdapter(
 			return true;
 		},
 	};
-}
-
-function hasUtf8BomPrefix(chunk: Buffer): boolean {
-	return (
-		chunk.length >= 3 &&
-		chunk[0] === 0xef &&
-		chunk[1] === 0xbb &&
-		chunk[2] === 0xbf
-	);
 }
 
 function parseFailurePosition(error: unknown): number | null {
@@ -260,112 +215,58 @@ function reportStdinParseFailure(
 	}
 }
 
-export function deserializeMessageWithObservability(
-	line: string,
-	chunkSnapshot: StdioChunkSnapshot,
-): JSONRPCMessage {
+/**
+ * Parses a single stdin line into an MCP message.
+ *
+ * Strips a leading UTF-8 BOM (some Windows clients emit one) and, on failure,
+ * logs a redacted structural diagnostic to stderr before rethrowing the
+ * original parser error unchanged.
+ */
+export function deserializeMessageLine(line: string): JSONRPCMessage {
 	const lineHadLeadingBom = line.startsWith(UTF8_BOM);
 	const normalizedLine = lineHadLeadingBom ? line.slice(1) : line;
 	const lineByteLength = Buffer.byteLength(line);
-	const sessionId = getCurrentMcpSessionId();
-	return tracer.startActiveSpan(
-		"mcp.stdio.deserialize",
-		{
-			attributes: {
-				"mcp.span.category": "protocol",
-				"mcp.transport": "stdio",
-				"mcp.stdio.parse.line.char_length": line.length,
-				"mcp.stdio.parse.line.byte_length": lineByteLength,
-				"mcp.stdio.parse.line.had_leading_bom": lineHadLeadingBom,
-				"mcp.stdio.parse.line.bom_stripped": lineHadLeadingBom,
-				"mcp.stdio.parse.chunk.last_byte_length":
-					chunkSnapshot.lastChunkByteLength,
-				"mcp.stdio.parse.chunk.last_had_utf8_bom":
-					chunkSnapshot.lastChunkStartsWithUtf8Bom,
-				...(sessionId ? { "mcp.session.id": sessionId } : {}),
-			},
-		},
-		(span) => {
-			try {
-				const message = deserializeMessage(normalizedLine);
-				span.setStatus({ code: SpanStatusCode.OK });
-				if (message && typeof message === "object" && "method" in message) {
-					const method = message.method;
-					if (typeof method === "string" && SAFE_MCP_METHODS[method] === true) {
-						span.setAttribute("mcp.method", method);
-					}
-					if (method === "initialize") {
-						const client = recordMcpSessionStart(message);
-						const sessionId = getCurrentMcpSessionId();
-						if (sessionId) {
-							span.setAttribute("mcp.session.id", sessionId);
-						}
-						span.setAttribute("mcp.client.name", client.name);
-						span.setAttribute("mcp.client.version", client.version);
-						span.setAttribute("mcp.protocol.version", client.protocolVersion);
-					}
-				}
-				return message;
-			} catch (error) {
-				const diagnostic = createSafeErrorDiagnostic(error);
-				const failurePosition = parseFailurePosition(error);
-				const failureLocation = getFailureLocation(
-					failurePosition,
-					lineHadLeadingBom,
-				);
 
-				span.setStatus({ code: SpanStatusCode.ERROR });
-				span.addEvent("mcp.stdio.parse.failure", {
-					"error.category": diagnostic.category,
-				});
-				span.setAttribute("mcp.stdio.parse.failure.location", failureLocation);
-				if (failurePosition !== null) {
-					span.setAttribute(
-						"mcp.stdio.parse.failure.position",
-						failurePosition,
-					);
-				}
+	try {
+		const message = deserializeMessage(normalizedLine);
+		if (
+			message &&
+			typeof message === "object" &&
+			"method" in message &&
+			message.method === "initialize"
+		) {
+			recordMcpSessionStart(message);
+		}
+		return message;
+	} catch (error) {
+		const failurePosition = parseFailurePosition(error);
+		const failureLocation = getFailureLocation(
+			failurePosition,
+			lineHadLeadingBom,
+		);
 
-				stdioParseErrors.add(1, { failure_location: failureLocation });
+		reportStdinParseFailure(
+			error,
+			line,
+			lineByteLength,
+			failureLocation,
+			failurePosition,
+		);
 
-				reportStdinParseFailure(
-					error,
-					line,
-					lineByteLength,
-					failureLocation,
-					failurePosition,
-				);
-
-				throw error;
-			} finally {
-				span.end();
-			}
-		},
-	);
+		throw error;
+	}
 }
 
-export function createInstrumentedStdioTransport<
-	T extends StdioServerTransport,
->(transport: T): T {
-	const privateAdapter = createSdkPrivateStdioAdapter(transport);
-	let lastChunkSnapshot: StdioChunkSnapshot = {
-		lastChunkByteLength: 0,
-		lastChunkStartsWithUtf8Bom: false,
-	};
-
-	privateAdapter.wrapOnData((chunk) => {
-		lastChunkSnapshot = {
-			lastChunkByteLength: chunk.byteLength,
-			lastChunkStartsWithUtf8Bom: hasUtf8BomPrefix(chunk),
-		};
-	});
-
-	const didInstallReadMessageHook = privateAdapter.installReadMessageHook(
-		(line) => deserializeMessageWithObservability(line, lastChunkSnapshot),
+/**
+ * Hardens a stdio transport against malformed stdin lines: BOM-prefixed
+ * messages are accepted and unparsable lines are skipped (up to a per-read
+ * cap) instead of killing the connection.
+ */
+export function createHardenedStdioTransport<T extends StdioServerTransport>(
+	transport: T,
+): T {
+	createSdkPrivateStdioAdapter(transport).installReadMessageHook(
+		deserializeMessageLine,
 	);
-	if (!didInstallReadMessageHook) {
-		return transport;
-	}
-
 	return transport;
 }

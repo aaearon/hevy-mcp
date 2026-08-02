@@ -200,17 +200,17 @@ also include `hevy-mcp`. The package-changeset check enforces this relationship.
 both runtimes. `packages/hevy-client` owns the native-fetch Hevy client:
 
 - `packages/node` is Node-only. Keep process lifecycle, Node built-ins, stdio
-  transport, telemetry, and stdio observability there.
+  transport, and stdio parse hardening there.
 - `packages/worker` is the Cloudflare Worker Streamable HTTP and OAuth entry
   point. It must not import Node-only code.
 - `packages/core` and `packages/hevy-client` must remain safe in both Node.js
   and Cloudflare Workers.
 - The allowed dependency graph is `hevy-client → core → node/worker`.
 
-`packages/node/src/utils/stdio-observability.ts` instruments private MCP SDK
-stdio fields such as `_ondata` and `_readBuffer`. After every
+`packages/node/src/utils/stdio-parsing.ts` patches private MCP SDK
+stdio fields such as `_readBuffer` and `_buffer`. After every
 `MCP TypeScript SDK` upgrade,
-run the complete stdio observability suite (`npm run test:stdio`) and inspect
+run the complete stdio parse hardening suite (`npm run test:stdio`) and inspect
 the SDK compatibility assumptions before merging.
 
 ## Cloudflare Worker development
@@ -260,10 +260,6 @@ these values in each GitHub Environment:
 - Production-only variable `CLOUDFLARE_WORKER_ROUTE`: the custom-domain
   hostname or route pattern. Preview deployments intentionally leave routes
   unset because they use PR version aliases.
-- Optional variable `CLOUDFLARE_OTEL_LOGS_DESTINATIONS`: comma-separated
-  Cloudflare Workers Observability log destination names.
-- Optional variable `CLOUDFLARE_OTEL_TRACES_DESTINATIONS`: comma-separated
-  Cloudflare Workers Observability trace destination names.
 
 The workflows pass these values to `cloudflare.config.ts`. Namespace IDs and
 routes therefore do not need to be hardcoded in a committed Wrangler config.
@@ -281,11 +277,6 @@ fork configuration:
   `OAUTH_KV`.
 - Add `routes` or a custom domain only if the hostname belongs to your account;
   the portable default uses `workers.dev` instead.
-- Add observability destination names through the optional
-  `CLOUDFLARE_OTEL_LOGS_DESTINATIONS` and
-  `CLOUDFLARE_OTEL_TRACES_DESTINATIONS` variables only if they exist in your
-  account. For the maintainer environment, set these to `otel-logs` and
-  `otel`; self-hosters can omit or replace them.
 
 Browser clients must send an exact origin from the Worker's default allowlist:
 

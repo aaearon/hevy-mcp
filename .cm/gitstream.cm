@@ -239,8 +239,7 @@ is:
   bot_branch: "{{ branch.name | match(list=['renovate/']) | some }}"
 
 critical_files:
-  - src/index.ts
-  - src/utils/telemetry.ts
-  - src/utils/error-handler.ts
-  - src/utils/stdio-observability.ts
-  - src/utils/hevyClientKubb.ts
+  - packages/node/src/index.ts
+  - packages/node/src/utils/stdio-parsing.ts
+  - packages/core/src/utils/error-handler.ts
+  - packages/hevy-client/src/hevy-client.ts

@@ -12,6 +12,17 @@ const scriptPath = fileURLToPath(
 );
 const fixtureDirectories = new Set<string>();
 
+/**
+ * Git environment variables take precedence over `cwd`. When this suite runs
+ * inside a Git hook (for example the pre-commit `npm run test:unit`), Git
+ * exports `GIT_DIR`/`GIT_INDEX_FILE`/`GIT_WORK_TREE`, which would redirect
+ * every fixture command at the real repository and rewrite its HEAD. Strip
+ * them so fixtures stay confined to their temporary directory.
+ */
+const gitFixtureEnv: NodeJS.ProcessEnv = Object.fromEntries(
+	Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+);
+
 afterEach(async () => {
 	await Promise.all(
 		[...fixtureDirectories].map((directory) =>
@@ -28,7 +39,7 @@ async function writeFixtureFile(root: string, path: string, contents: string) {
 }
 
 async function git(root: string, ...args: string[]) {
-	return execFileAsync("git", args, { cwd: root });
+	return execFileAsync("git", args, { cwd: root, env: gitFixtureEnv });
 }
 
 async function commitFixture(root: string) {
@@ -89,7 +100,7 @@ async function runCheck(root: string, base: string) {
 		const result = await execFileAsync(
 			process.execPath,
 			[join(root, "scripts/check-package-changesets.mjs"), "--since", base],
-			{ cwd: root },
+			{ cwd: root, env: gitFixtureEnv },
 		);
 		return {
 			exitCode: 0,
