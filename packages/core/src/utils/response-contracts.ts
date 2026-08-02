@@ -522,6 +522,23 @@ export function summarizeWorkout(workout: Workout): FormattedWorkoutSummary {
 	};
 }
 
+/**
+ * Normalize a routine mutation response body.
+ *
+ * POST /v1/routines and PUT /v1/routines/:routineId respond with
+ * `{ routine: [Routine] }`, even though the generated OpenAPI types declare a
+ * bare `Routine`. Accept the wrapped-array shape, a singular `{ routine }`
+ * wrapper, and a bare routine so the tools stay correct if the API is fixed.
+ */
+export function unwrapRoutineMutationResponse(data: unknown): Routine | null {
+	if (!data || typeof data !== "object") return null;
+
+	const wrapped = (data as { routine?: Routine | Routine[] }).routine;
+	if (wrapped === undefined) return data as Routine;
+	if (Array.isArray(wrapped)) return wrapped[0] ?? null;
+	return wrapped ?? null;
+}
+
 export function projectRoutine(routine: Routine): FormattedRoutine {
 	return {
 		...(routine.id == null ? {} : { id: routine.id }),

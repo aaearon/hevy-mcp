@@ -1,13 +1,13 @@
 import type {
 	GetV1Routines200,
 	GetV1RoutinesRoutineid200,
-	PostV1Routines201,
-	PutV1RoutinesRoutineid200,
+	Routine,
 } from "@hevy-mcp/hevy-client/types";
 import {
 	createRoutineResponse,
 	routineResponse,
 	routinesResponse,
+	unwrapRoutineMutationResponse,
 	updateRoutineResponse,
 } from "../utils/response-contracts.js";
 import {
@@ -111,7 +111,7 @@ const getRoutineDefinition: ToolDefinition<
 const createRoutineSchema = createRoutineInputShape;
 
 type CreateRoutineResult = {
-	routine: PostV1Routines201 | null | undefined;
+	routine: Routine | null;
 	usesRepRanges: boolean;
 };
 const createRoutineDefinition: ToolDefinition<
@@ -132,17 +132,15 @@ const createRoutineDefinition: ToolDefinition<
 			args.routine,
 			"create",
 		);
-		const data: PostV1Routines201 = await runtime
-			.getClient()
-			.createRoutine({ routine: payload });
-		return { routine: data, usesRepRanges };
+		const data = await runtime.getClient().createRoutine({ routine: payload });
+		return { routine: unwrapRoutineMutationResponse(data), usesRepRanges };
 	},
 };
 
 const updateRoutineSchema = updateRoutineInputShape;
 
 type UpdateRoutineResult = {
-	routine: PutV1RoutinesRoutineid200 | null | undefined;
+	routine: Routine | null;
 	routine_id: string;
 	usesRepRanges: boolean;
 };
@@ -165,10 +163,14 @@ const updateRoutineDefinition: ToolDefinition<
 			args.routine,
 			"update",
 		);
-		const data: PutV1RoutinesRoutineid200 = await runtime
+		const data = await runtime
 			.getClient()
 			.updateRoutine(routine_id, { routine: payload });
-		return { routine: data, routine_id, usesRepRanges };
+		return {
+			routine: unwrapRoutineMutationResponse(data),
+			routine_id,
+			usesRepRanges,
+		};
 	},
 };
 

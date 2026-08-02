@@ -61,7 +61,6 @@ export type RoutinePayloadResult =
 
 function buildRoutineSets(
 	sets: RoutinePayloadInput["exercises"][number]["sets"],
-	mode: "create" | "update",
 ): PostRoutinesRequestSet[] | PutRoutinesRequestSet[] {
 	return sets.map((set) => {
 		const repRange = buildRepRange(set.rep_range);
@@ -77,13 +76,6 @@ function buildRoutineSets(
 			custom_metric: set.custom_metric ?? null,
 		};
 
-		if (mode === "create") {
-			return {
-				...common,
-				type: set.type,
-				rep_range: repRange,
-			};
-		}
 		return {
 			...common,
 			type: set.type,
@@ -94,8 +86,10 @@ function buildRoutineSets(
 
 /**
  * Build a routine wire payload while retaining rep-range semantics.
- * Create requests explicitly send null rep_range; update requests omit it
- * when no range is supplied.
+ * Both create and update requests omit rep_range when no range is supplied:
+ * the Hevy API rejects an explicit `rep_range: null` with
+ * "rep_range must be of type object" even though the OpenAPI spec marks the
+ * field nullable, which otherwise breaks every reps-only and warmup set.
  */
 export function buildRoutinePayload(
 	input: RoutinePayloadInput,
@@ -111,7 +105,7 @@ export function buildRoutinePayload(
 ): RoutinePayloadResult {
 	let usesRepRanges = false;
 	const exercises = input.exercises.map((exercise) => {
-		const sets = buildRoutineSets(exercise.sets, mode);
+		const sets = buildRoutineSets(exercise.sets);
 		if (
 			sets.some(
 				(set) =>
