@@ -5,15 +5,24 @@
 ## Project Overview
 
 - **hevy-mcp** is a Model Context Protocol (MCP) server for the Hevy Fitness API, enabling AI agents to manage workouts, routines, exercise templates, and folders via the Hevy API.
-- The codebase is TypeScript (Node.js v26+), with a clear separation between tool implementations (`src/tools/`), generated API clients (`src/generated/`), and utility logic (`src/utils/`).
+- The codebase is TypeScript (Node.js v24+) organized as four workspaces: the
+  runtime-neutral `@hevy-mcp/hevy-client` and `@hevy-mcp/core` packages, the
+  Node package in `packages/node`, and the Cloudflare package in
+  `packages/worker`. All implementation lives under `packages/*`; the root is
+  a private workspace orchestrator and must not gain a runtime `src/` tree.
 - API client code is generated from the OpenAPI spec using [Kubb](https://kubb.dev/). **Do not manually edit generated files.**
 - **Type Safety:** The project uses Zod schema inference for type-safe tool parameters, eliminating manual type assertions and ensuring compile-time type safety.
-- **MCP SDK internals sensitivity:** `src/utils/stdio-observability.ts` depends on MCP SDK stdio internals (private fields such as `_ondata`/`_readBuffer`) for raw chunk instrumentation. Re-run the stdio observability test suite after any `@modelcontextprotocol/sdk` upgrade.
+- **MCP SDK internals sensitivity:** `packages/node/src/utils/stdio-observability.ts`
+  depends on MCP SDK stdio internals (private fields such as `_ondata`/
+  `_readBuffer`) for raw chunk instrumentation. Re-run the stdio observability
+  test suite after any MCP TypeScript SDK package upgrade.
 
 ## Git & Workflow Standards
 
 - **Conventional Commits**: AI agents (such as Claude Code, Antigravity, etc.) and developers must always use the conventional commit format (e.g., `feat:`, `fix:`, `refactor:`, `build:`, `ci:`, `chore:`, `docs:`, `style:`, `test:`) for all commits they generate or suggest.
 - **No Direct Pushes to `main` (CRITICAL)**: Pushing directly to the `main` branch is strictly prohibited and blocked by branch protection. All development must be done on feature branches (e.g., `feat/some-feature` or `fix/some-bug`) and submitted via a Pull Request.
+- **Fresh Worktrees (CRITICAL)**: Always begin work from a new Git worktree based on and tracking the latest `origin/main`. Fetch `origin/main` first, then create a dedicated feature worktree/branch from `origin/main`; never start implementation in an existing worktree or from a stale local `main`.
+- **Never bypass Git hooks**: Never use `--no-verify` for commits or pushes. Fix the underlying hook or validation failure, then rerun the hook normally.
 - **Changesets (CRITICAL)**: The project uses [Changesets](https://github.com/changesets/changesets) for versioning and releases.
   - **RELEASE CADENCE**: Merge the automated `changeset-release/main` (**"Version Packages"**) Pull Request on a regular cadence (weekly is the default), not via ad-hoc frequent merges.
   - **URGENT EXCEPTION**: Security fixes and high-impact user-facing bug fixes may be released immediately outside the routine cadence.
@@ -27,9 +36,7 @@
 
 ### Documentation and Research
 
-- **Context7**: MUST use Context7 for any library and API documentation needs
 - **GitHub Integration**: MUST use the GitHub MCP server for all GitHub interactions and only use `gh` if there is a problem with the personal access token
-- **AI Feedback**: MUST ask Gemini for feedback (about a design, code review, etc.) but remember Gemini has no memory so everything must be provided in the prompt and you must refer to files using the @ syntax
 
 ## Working Effectively
 
@@ -136,7 +143,8 @@ npm start
 Only list commands here that are known to be flaky or unsupported in some
 environments. Other documented commands (including `npm run check:types`) are
 expected to succeed locally; treat failures as issues to fix rather than
-environmental flakiness. See `README.md` for the canonical list of commands.
+environmental flakiness. See `CONTRIBUTING.md` for the canonical list of
+commands.
 
 `npm run check:types` is expected to pass locally before opening a PR; see the
 "Type checking validation" section below.
@@ -155,7 +163,7 @@ Always provide the API key through `HEVY_API_KEY`.
 
 Do **not** pass API keys via CLI arguments
 (`--hevy-api-key=...`, `--hevyApiKey=...`, `hevy-api-key=...`). These CLI
-forms are deprecated and insecure.
+forms are unsupported and insecure.
 
 **CRITICAL:** Without this API key:
 
@@ -163,15 +171,9 @@ forms are deprecated and insecure.
 - Integration tests will fail (by design)
 - API client functionality cannot be tested
 
-### Optional Environment Variables
-
-- `SENTRY_DSN` - Opt-in. Sentry telemetry is off by default; set this to your own Sentry project DSN to enable error/performance monitoring. When unset, `@sentry/node` is never initialized and all instrumentation is a no-op.
-- `SENTRY_RELEASE` - Release identifier reported to Sentry (default: `name@version`).
-- `SENTRY_TRACES_SAMPLE_RATE` - Fraction of transactions traced, 0.0–1.0 (default: `1.0`).
-
 ### Node.js Version
 
-- **Supported:** Node.js >= 26
+- **Supported:** Node.js >= 24
 - **Recommended:** Use the exact version pinned in `.nvmrc` (CI uses this exact version)
 - If you use `nvm`, run `nvm use` in the repo root to match `.nvmrc`
 - Use `node --version` to verify current version
@@ -233,7 +235,8 @@ Always perform these validation steps after making changes:
 - **ALWAYS** run unit tests after any source code changes
 - **ALWAYS** run build validation before committing changes
 - **ALWAYS** use type inference (`InferToolParams`) instead of manual type assertions
-- **DO NOT** attempt to fix TypeScript errors in `src/generated/` - these are auto-generated files
+- **DO NOT** attempt to fix TypeScript errors in
+  `packages/hevy-client/src/generated/` - these are auto-generated files
 - **DO NOT** commit `.env` files containing real API keys
 - **DO NOT** use `as any` or `as unknown` type assertions in tool handlers
 
@@ -242,8 +245,19 @@ Always perform these validation steps after making changes:
 ### Source Code Organization
 
 ```
-src/
-├── index.ts           # Main entry point - register tools here
+packages/
+├── hevy-client/       # Runtime-neutral native-fetch client and Kubb output
+├── core/              # Runtime-neutral MCP construction and tool implementations
+├── node/              # Public Node.js stdio package and telemetry
+└── worker/            # Cloudflare Worker HTTP and OAuth entrypoints
+
+src/                  # Transitional root compatibility facades and legacy tests
+```
+
+The runtime-neutral implementation lives under `packages/core/src/`:
+
+```
+packages/core/src/
 ├── tools/             # MCP tool implementations (+ co-located *.test.ts)
 │   ├── annotations.ts       # Workout annotation tools
 │   ├── body-measurements.ts # Body measurement tools
@@ -252,18 +266,21 @@ src/
 │   ├── templates.ts         # Exercise template tools
 │   ├── user.ts              # User profile tools
 │   └── workouts.ts          # Workout management tools
-├── generated/         # Auto-generated API client (DO NOT EDIT)
-│   ├── client/        # Kubb-generated client code
-│   └── schemas/       # Zod validation schemas
 └── utils/             # Shared helper functions
     ├── tool-helpers.ts    # Type inference utilities (InferToolParams)
     ├── error-handler.ts   # Centralized error handling (withErrorHandling)
-    ├── response-formatter.ts # MCP response utilities
-    ├── formatters.ts      # Data formatting helpers
-    ├── hevyClient.ts      # API client factory
-    ├── hevyClientKubb.ts  # Kubb client wrapper
-    └── config.ts          # Configuration parsing
+    ├── response-formatter.ts # Output schemas, formatting, and MCP responses
+    ├── tool-taxonomy.ts   # Safe tool observation taxonomy
+    ├── cache.ts           # Per-server template/cache helpers
+    └── safe-error-diagnostic.ts # Privacy-preserving diagnostics
 ```
+
+`packages/core` and `packages/hevy-client` must remain safe for both Node.js and
+Cloudflare Workers. Keep Node built-ins, stdio transports, process lifecycle
+handling, and telemetry/observability in `packages/node`. Keep Cloudflare
+bindings and OAuth code in `packages/worker`. The dependency graph is
+`hevy-client → core → node/worker`; runtime packages must never import one
+another.
 
 ### Testing Structure
 
@@ -277,16 +294,20 @@ tests/
 
 The project uses a generated API client via Kubb that creates:
 
-- TypeScript types in `src/generated/client/types/`
-- API methods in `src/generated/client/api/`
-- Zod schemas in `src/generated/client/schemas/`
-- Mock data in `src/generated/client/mocks/`
+- TypeScript types in `packages/hevy-client/src/generated/client/types/`
+- API methods in `packages/hevy-client/src/generated/client/api/`
+- Zod schemas in `packages/hevy-client/src/generated/client/schemas/`
+
+Only the curated `@hevy-mcp/hevy-client/types` and
+`@hevy-mcp/hevy-client/schemas` barrels are package API. Generated API
+functions and `.kubb` internals are private.
 
 ### Configuration Files
 
-- `kubb.config.ts` - API client generation configuration
+- `packages/hevy-client/kubb.config.ts` - API client generation configuration
 - `oxlint and oxfmt configuration` - Code formatting and linting rules (tabs, 80 char lines, double quotes)
-- `lefthook.yml` - Git hooks for pre-commit formatting and commit message linting
+- `hk.pkl` and `mise.toml` - Git hooks for formatting, tests, commit message
+  linting, and tool installation
 
 ## Development Patterns
 
@@ -311,50 +332,20 @@ const getRoutinesSchema = {
 // 2. Infer types from schema
 type GetRoutinesParams = InferToolParams<typeof getRoutinesSchema>;
 
-// 3. Register with inputSchema + outputSchema, return structuredContent
+// 3. Use inferred type in handler
 server.registerTool(
 	"get-routines",
 	{
 		description: "Description...",
-		inputSchema: getRoutinesSchema,
-		// outputSchema is a ZodRawShape. The MCP SDK validates the tool's
-		// structuredContent against it at runtime, so the shape MUST match what
-		// createJsonResponse returns (same wrapper key). Reuse the formatted Zod
-		// schemas exported from formatters.ts.
-		outputSchema: { routines: z.array(formattedRoutineSchema) },
-		annotations: readOnlyAnnotations("Get Routines"),
+		inputSchema: z.object(getRoutinesSchema),
 	},
 	withErrorHandling(async (args: GetRoutinesParams) => {
 		// args is fully typed - no manual assertions needed!
 		const { page, pageSize } = args;
 		// ...
-		// Wrap the payload in a named key so structuredContent is a JSON object.
-		return createJsonResponse({ routines });
 	}, "get-routines"),
 );
 ```
-
-#### Pattern: outputSchema and structuredContent
-
-Tools that return JSON declare an `outputSchema` and return their payload wrapped
-in a named key via `createJsonResponse`, which emits both the text `content` and a
-machine-readable `structuredContent` object. Rules:
-
-- **Wrap payloads in a named key**: `{ workouts: [...] }`, `{ workout: {...} }`.
-  `structuredContent` must be a JSON object, never a bare array.
-- **outputSchema key must equal the createJsonResponse key.** The SDK strictly
-  validates `structuredContent` against `outputSchema` and rejects mismatches.
-- **Use schema-derived types.** `formatters.ts` defines the Zod schemas as the
-  source of truth and derives the `FormattedX` types via `z.infer`, so any drift
-  fails at compile time. Reuse those schemas in `outputSchema`.
-- **Empty lists** return the wrapped empty array (`{ workouts: [] }`), not an
-  empty/text response.
-- **Not-found / failure** paths `throw new Error(...)`; `withErrorHandling` turns
-  them into `isError` responses, which the SDK does not output-validate.
-- **Plain-text tools** (those returning `createTextResponse`) must NOT declare an
-  `outputSchema` (text responses carry no `structuredContent`).
-- `src/tools/output-schema-validation.test.ts` guards every tool's
-  `structuredContent` against its declared `outputSchema`.
 
 **Key Benefits:**
 
@@ -371,25 +362,28 @@ machine-readable `structuredContent` object. Rules:
 
 ### Adding New MCP Tools
 
-1. **Create new tool file** in `src/tools/`
+1. **Create new tool file** in `packages/core/src/tools/`
 2. **Define Zod schema** with `as const` assertion
 3. **Infer parameter types** using `InferToolParams<typeof schema>`
 4. **Implement handler** with typed parameters (no manual assertions)
-5. **Wrap with error handling** using `withErrorHandling` from `src/utils/error-handler.ts`
-6. **Format outputs** using helpers in `src/utils/formatters.ts`
-7. **Register tools** in `src/index.ts`
+5. **Wrap with error handling** using `withErrorHandling` from
+   `packages/core/src/utils/error-handler.ts`
+6. **Define and render responses** in `packages/core/src/utils/response-formatter.ts`,
+   co-locating Zod output schemas, raw-to-public normalization, legacy text
+   projection, and MCP response assembly
+7. **Register tools** in `packages/core/src/tools/register.ts`
 8. **Add unit tests** co-located with implementation
 
 ### Working with Generated Code
 
-- **NEVER** edit files in `src/generated/` directly
+- **NEVER** edit files in `packages/hevy-client/src/generated/` directly
 - Regenerate API client: `npm run build:client`
 - If OpenAPI spec changes, refresh `openapi-spec.json` with `npm run openapi` first
-- Generated types are available in `src/generated/client/types/index.ts`
+- Generated types are available through `@hevy-mcp/hevy-client/types`
 
 ### Error Handling
 
-- Use centralized error handling from `src/utils/error-handler.ts`
+- Use centralized error handling from `packages/core/src/utils/error-handler.ts`
 - Wrap handlers with `withErrorHandling(fn, "context-name")`
 - Follow existing error response patterns in tool implementations
 - Error responses automatically include `isError: true` flag
@@ -406,7 +400,7 @@ machine-readable `structuredContent` object. Rules:
 6. **Type errors in tool handlers:** Use `InferToolParams<typeof schema>` instead of manual type assertions
 7. **Stale webhook references in docs:** Webhook endpoints are not currently
    available in the generated client, so docs should not reference a
-   `src/tools/webhooks.ts` tool implementation.
+   `packages/core/src/tools/webhooks.ts` tool implementation.
 
 ### Performance Expectations
 
@@ -418,59 +412,21 @@ machine-readable `structuredContent` object. Rules:
 
 ## Key Utilities Reference
 
-### Type Inference (`src/utils/tool-helpers.ts`)
+### Type Inference (`packages/core/src/utils/tool-helpers.ts`)
 
 - **`InferToolParams<T>`**: Infers TypeScript types from Zod schema objects
 - **`createTypedToolHandler`**: Optional wrapper for automatic validation (MCP SDK already validates)
 
-### Error Handling (`src/utils/error-handler.ts`)
+### Error Handling (`packages/core/src/utils/error-handler.ts`)
 
 - **`withErrorHandling<TParams>(fn, context)`**: Wraps handlers with error handling while preserving parameter types
 - **`createErrorResponse(error, context?)`**: Creates standardized error responses
 
-### Response Formatting (`src/utils/response-formatter.ts`)
+### Response Formatting (`packages/core/src/utils/response-formatter.ts`)
 
-- **`createJsonResponse(data, options?)`**: Creates JSON-formatted MCP responses. Also attaches `data` as `structuredContent` when `data` is a plain object (not an array/primitive), satisfying output-schema validation.
+- **`createJsonResponse(data, options?)`**: Creates JSON-formatted MCP responses
 - **`createTextResponse(text)`**: Creates text-formatted MCP responses
 - **`createEmptyResponse(message)`**: Creates empty responses with messages
-
-## HTTP+OAuth Transport (fork-specific)
-
-The `http+oauth` transport exposes a password-gated OAuth 2.1 authorization server + MCP resource server, compatible with claude.ai Connectors. This is specific to this fork and is not part of upstream `chrisdoc/hevy-mcp`.
-
-Additional environment variables (required for `http+oauth` mode):
-
-- `MCP_ISSUER_URL` - Public base URL of this server (e.g. `https://mcp.example.com`). Also settable via `--issuer-url=URL`.
-- `MCP_AUTH_PASSWORD` - Password shown in the consent form; leave empty to reject all logins.
-- `OAUTH_DB_PATH` - Path to the SQLite database file (default: `./oauth.db`).
-
-Starting the server:
-
-```bash
-MCP_ISSUER_URL=http://localhost:3000 MCP_AUTH_PASSWORD=secret HEVY_API_KEY=xxx \
-  node dist/cli.mjs --transport=http+oauth --port=3000
-```
-
-Verification:
-
-```bash
-# OAuth metadata
-curl http://localhost:3000/.well-known/oauth-authorization-server | jq .
-
-# Unauthenticated request should return 401
-curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/mcp \
-  -H "Content-Type: application/json" -d '{}'
-```
-
-### Docker Compose
-
-`Dockerfile.oauth` and `docker-compose.yml` provide a self-contained deployment (port 8012 → 8000 inside container). The existing `Dockerfile` stub (which deliberately errors) and `docker.test.ts` are untouched.
-
-```bash
-# Create .env with HEVY_API_KEY, MCP_AUTH_PASSWORD, MCP_ISSUER_URL
-docker compose -f docker-compose.yml build
-docker compose -f docker-compose.yml up -d
-```
 
 ---
 
