@@ -19,7 +19,6 @@ import {
 	resolveSessionTerminationCategory,
 } from "./utils/mcp-session-observability.js";
 import { serviceName, serviceVersion } from "./utils/service-info.js";
-import { scheduleUpdateCheck } from "./utils/version-check.js";
 
 const name = serviceName;
 const version = serviceVersion;
@@ -203,10 +202,6 @@ export async function runStdioServer() {
 
 		await server.connect(transport);
 
-		scheduleUpdateCheck({
-			packageName: serviceName,
-			currentVersion: serviceVersion,
-		});
 		installGracefulShutdown({
 			target: server,
 			onComplete: (succeeded) => {
@@ -265,10 +260,6 @@ export async function runServer(): Promise<void> {
 		console.error(
 			`Starting MCP server in HTTP mode at ${options.host}:${options.port}/mcp`,
 		);
-		scheduleUpdateCheck({
-			packageName: serviceName,
-			currentVersion: serviceVersion,
-		});
 		installGracefulShutdown({ target: handle });
 	} catch (error) {
 		recordMcpSessionTermination(listening ? "unknown" : "startup_failure");

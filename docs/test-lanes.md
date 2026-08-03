@@ -64,9 +64,11 @@ it would load the full exercise catalog.
 Build time is therefore outside every latency sample. A child-only Node
 `--import` preload installs deterministic Nock fixtures before the CLI loads,
 requires the dedicated fake API key, disables Node HTTP(S) connections, and
-rejects `globalThis.fetch` so the background update check cannot contact npm.
-The expected blocked npm-registry URL is recorded; any other fetch target is an
-unexpected request and fails fixture verification. It never contacts live Hevy.
+replaces `globalThis.fetch`. Any fetch target other than the mocked Hevy API is
+an unexpected request and fails fixture verification. This fork removed the
+background npm update check, so the fixture no longer special-cases the
+npm-registry URL: were it ever reintroduced, it would now fail the lane as an
+unexpected request. It never contacts live Hevy.
 Issue #609 remains responsible for the broader installed-tarball expansion.
 
 The lane records exactly five stable scenarios:

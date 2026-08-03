@@ -37,7 +37,6 @@
 		"@modelcontextprotocol/node": "^2.0.0",
 		"@modelcontextprotocol/server": "^2.0.0",
 		"better-sqlite3": "^12.11.1",
-		"semver": "^7.8.5",
 		"zod": "^4.4.3"
 	},
 	"devDependencies": {

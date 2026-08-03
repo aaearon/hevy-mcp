@@ -22,7 +22,6 @@ const testDoubles = vi.hoisted(() => {
 		startStreamableHttpServer: vi.fn(),
 		installGracefulShutdown: vi.fn(),
 		hardenTransport: vi.fn(() => ({ kind: "stdio-transport" })),
-		scheduleUpdateCheck: vi.fn(),
 		recordSessionTermination: vi.fn(),
 		resolveTerminationCategory: vi.fn(() => "clean"),
 		createNodeHevyClientOptions: vi.fn(() => ({
@@ -75,10 +74,6 @@ vi.mock("./utils/stdio-parsing.js", () => ({
 vi.mock("./utils/mcp-session-observability.js", () => ({
 	recordMcpSessionTermination: testDoubles.recordSessionTermination,
 	resolveSessionTerminationCategory: testDoubles.resolveTerminationCategory,
-}));
-
-vi.mock("./utils/version-check.js", () => ({
-	scheduleUpdateCheck: testDoubles.scheduleUpdateCheck,
 }));
 
 import { createNodeMcpServer, runServer, runStdioServer } from "./index.js";
@@ -326,16 +321,31 @@ describe("Node package entrypoint", () => {
 		expect(testDoubles.server.connect).toHaveBeenCalledWith(
 			testDoubles.transport,
 		);
-		expect(testDoubles.scheduleUpdateCheck).toHaveBeenCalledWith({
-			packageName: "hevy-mcp",
-			currentVersion: "3.4.1",
-		});
 		expect(testDoubles.installGracefulShutdown).toHaveBeenCalledWith(
 			expect.objectContaining({
 				target: testDoubles.server,
 				onComplete: expect.any(Function),
 			}),
 		);
+	});
+
+	it("makes no outbound request of its own when stdio starts", async () => {
+		process.env.HEVY_API_KEY = "runtime-key";
+		const fetchSpy = vi
+			.spyOn(globalThis, "fetch")
+			.mockRejectedValue(new Error("startup must not perform any fetch"));
+
+		try {
+			await runStdioServer();
+			// Let any deferred background work (e.g. a scheduled update check)
+			// run before asserting.
+			await new Promise((resolve) => setImmediate(resolve));
+			await new Promise((resolve) => setTimeout(resolve, 0));
+
+			expect(fetchSpy).not.toHaveBeenCalled();
+		} finally {
+			fetchSpy.mockRestore();
+		}
 	});
 
 	it("classifies a stdio connection failure", async () => {

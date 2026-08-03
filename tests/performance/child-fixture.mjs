@@ -1,7 +1,6 @@
 const PREFIX = "HEVY_PERFORMANCE_FIXTURE_RESULT=";
 const API_BASE = "https://api.hevyapp.com";
 const API_KEY = "performance-fixture-api-key";
-const EXPECTED_UPDATE_CHECK_URL = "https://registry.npmjs.org/hevy-mcp";
 const MODES = new Set([
 	"startup",
 	"tools-list",
@@ -135,11 +134,6 @@ try {
 						? input.href
 						: "<unsupported-fetch-input>"),
 		);
-		if (url.href === EXPECTED_UPDATE_CHECK_URL) {
-			result.blockedFetchRequests.push(url.href);
-			throw new Error("performance fixture blocked update check");
-		}
-
 		const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
 		const headers = new Headers(init?.headers ?? request?.headers);
 		const requestDescription = `${method} ${url.href}`;
