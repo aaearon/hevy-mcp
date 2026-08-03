@@ -52,6 +52,73 @@ Cloudflare HTTP/OAuth adapter. Only the Node workspace is publishable.
 
 > A Hevy API key, available with **Hevy PRO**, is required.
 
+## Telemetry and network activity
+
+**This fork of [`chrisdoc/hevy-mcp`](https://github.com/chrisdoc/hevy-mcp) has
+all runtime telemetry removed.** No OpenTelemetry, no Sentry, no analytics, no
+version check, no phone-home of any kind. Nothing about your usage is reported
+to the maintainer of this fork or to upstream.
+
+### What this server contacts
+
+**The only host this server ever contacts is `api.hevyapp.com`** — the Hevy API
+itself, which is the entire purpose of the product. Those requests carry your
+Hevy API key and your workout data, because they have to. There is no second
+destination.
+
+Specifically:
+
+- **No npm registry check.** Upstream ran a once-per-process, 24-hour-cached
+  `GET https://registry.npmjs.org/hevy-mcp` at startup to notify you about newer
+  releases. It was unauthenticated and carried no identifier, but it was on by
+  default with no way to turn it off. **This fork removes it entirely**, along
+  with its `~/.cache/hevy-mcp/update-check.json` cache file. If you are
+  migrating from upstream, that is a deliberate behavioural difference: you will
+  no longer be told when a new version ships, and any existing cache file on
+  your machine is now orphaned and unused. A `tests/unit/no-runtime-telemetry.test.ts`
+  assertion keeps it from coming back.
+- **No telemetry exporters.** See the history below for what was removed.
+- **Local diagnostics only.** `HEVY_MCP_DEBUG=1` is the sole remaining
+  diagnostic. It writes to stderr on your own machine and never leaves it.
+- **Cloudflare Worker.** Its egress is the Hevy API only. The `claude.ai` /
+  `claude.com` origin lists in the Worker are a **CORS allowlist**, not
+  outbound calls.
+
+### What upstream did, and why this fork exists
+
+The following is stated factually from the source that was removed in commit
+`dad8ca6`, including upstream's own mitigations. It is history, not an
+accusation.
+
+- **It was on by default.** Telemetry was opt-**out** via `HEVY_MCP_TELEMETRY`,
+  and only the exact string `"0"` disabled it. Unset meant enabled.
+- **Two backends at once.** A Sentry DSN **hardcoded in the source** at
+  `tracesSampleRate: 1.0` (100% of traces, no sampling), plus an OTLP collector
+  at `otel.chrisdoc.dev/v1` whose bearer token was **baked into the published
+  npm tarball at build time**, forwarding to Honeycomb.
+- **A stable pseudonymous identifier.** An HMAC-SHA256 computed using **your
+  Hevy API key as the secret** against a fixed context string, sent to Sentry
+  via `setUser` and stamped as `user.hash` on **every span**. The key itself was
+  never transmitted and the hash is not reversible — but it is a stable
+  identifier that follows one API key across every session, machine, and
+  release.
+- **What was emitted.** `mcp.tool.invocations`, `mcp.tool.outcomes`,
+  `mcp.tool.errors`, tool duration, `mcp.session.started`, `mcp.session.ended`,
+  `hevy.expected_404s`, plus roughly 15 nested trace spans wrapping tool
+  handlers.
+- **Upstream's mitigations, stated fairly.** `sendDefaultPii` was `false`; a
+  scrubber stripped 19 MCP attributes before Sentry export (including request
+  arguments, logging messages, resource URIs, session IDs, prompt names, and
+  client name/version); and counts were bucketed
+  (`"0" | "1" | "2-10" | "11-50" | "51+"`) rather than sent raw. Upstream was
+  not collecting workout contents or API keys.
+
+Two things are **unverified** and are deliberately not asserted here: whether
+those endpoints are still live today, and whether the OTLP path applied the same
+scrubbing as the Sentry path. The `beforeSendSpan` hook was Sentry-specific,
+which _suggests_ OTel-bound spans were less scrubbed, but this was not
+confirmed.
+
 ## See it in action
 
 [![Hevy MCP demo showing an AI assistant analyzing six weeks of Hevy training data](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.gif)](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.mp4)
@@ -495,7 +562,6 @@ self-hosted Streamable HTTP.
 | `HEVY_MCP_API_TIMEOUT`       | `30000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 30 seconds.                      |
 | `HEVY_MCP_DEBUG`             | Disabled       | Local Node          | Set to exactly `1` for privacy-bounded diagnostics on stderr. Stdout remains reserved for MCP JSON-RPC. |
 | `HEVY_MCP_HTTP_BEARER_TOKEN` | None           | Non-loopback HTTP   | Required when `--host` is not loopback; use a separate token, never the Hevy API key.                   |
-| `XDG_CACHE_HOME`             | `~/.cache`     | Local stdio         | Changes the root for the npm update-check cache at `hevy-mcp/update-check.json`.                        |
 | `-h`, `--help`               | N/A            | Local stdio CLI     | Print supported options and exit.                                                                       |
 | `-v`, `--version`            | N/A            | Local stdio CLI     | Print the installed version and exit.                                                                   |
 

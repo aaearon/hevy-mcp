@@ -172,6 +172,51 @@ forms are unsupported and insecure.
 - Integration tests will fail (by design)
 - API client functionality cannot be tested
 
+## No Telemetry, No Phone-Home (fork-specific, CRITICAL)
+
+This fork strips all runtime telemetry from upstream `chrisdoc/hevy-mcp`
+(removal commit `dad8ca6`) and additionally removed upstream's npm registry
+version check. **The only host the server may ever contact is
+`api.hevyapp.com`.** See the "Telemetry and network activity" section of
+`README.md` for the user-facing statement, which the code must keep true.
+
+Rules for maintainers and agents:
+
+- **Do not reintroduce telemetry.** No `@sentry/*`, no `@opentelemetry/*`, no
+  analytics, no crash reporting, no usage counters that leave the machine.
+- **Do not add any new outbound host.** That includes update checks, license
+  pings, feature-flag fetches, and CDN loads. If a change genuinely needs one,
+  it is a product decision, not an implementation detail — raise it first.
+- **`packages/core` observer seams are deliberately KEPT but inert.** There is
+  no default implementation, and `tool-runtime.ts` selects the plain handler
+  factory when no observer is passed. They exist purely so upstream merges stay
+  cheap. Keep them inert; do not wire a default observer.
+- **Every upstream merge must drop the `@sentry/*` / `@opentelemetry/*` hunks**
+  and any reintroduced `scheduleUpdateCheck` / `registry.npmjs.org` code.
+- `HEVY_MCP_DEBUG=1` is the only sanctioned diagnostic. It writes to stderr and
+  must never leave the machine.
+
+### The guard test is a tripwire, not a proof
+
+`tests/unit/no-runtime-telemetry.test.ts` scans every `packages/*/src` tree and
+every `packages/*/package.json`, and asserts that `registry.npmjs.org`,
+`scheduleUpdateCheck`, and `checkForUpdate` appear nowhere. That is broader than
+it used to be (it previously scanned only `packages/node/src`), but it still has
+real blind spots you must not mistake for coverage:
+
+- Its import regex `/from\s+["'](@sentry\/|@opentelemetry\/)/` **misses** bare
+  side-effect imports (`import "@sentry/node"`), dynamic `import()`, `require()`,
+  and `createRequire()` — and this repo already uses `createRequire()` for
+  `better-sqlite3`, so that pattern is live here.
+- It does **not** scan `scripts/`, which is deliberate: the package-boundary
+  guards there name `@sentry/` and `@opentelemetry/` as forbidden strings, so
+  including them would be a permanent false positive.
+- It matches source text only. A telemetry SDK pulled in transitively, or a host
+  assembled from string fragments at runtime, is invisible to it.
+
+Treat a green run as "no obvious regression", and still read upstream merge
+diffs by hand.
+
 ## HTTP+OAuth Transport (fork-specific)
 
 `--transport=http+oauth` turns the Node package into a password-gated OAuth 2.1

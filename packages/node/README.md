@@ -24,6 +24,30 @@ API requests.
 
 > A Hevy API key, available with **Hevy PRO**, is required.
 
+## Telemetry and network activity
+
+**This fork of [`chrisdoc/hevy-mcp`](https://github.com/chrisdoc/hevy-mcp) has
+all runtime telemetry removed.** No OpenTelemetry, no Sentry, no analytics, no
+version check, no phone-home of any kind. Nothing about your usage is reported
+to the maintainer of this fork or to upstream.
+
+**The only host this server ever contacts is `api.hevyapp.com`**, the Hevy API
+itself. Those requests carry your Hevy API key and workout data because they
+have to; there is no second destination.
+
+Note for anyone migrating from upstream: upstream's once-per-process,
+24-hour-cached npm registry version check (`GET
+https://registry.npmjs.org/hevy-mcp`) has also been **removed entirely**, along
+with its `~/.cache/hevy-mcp/update-check.json` cache. You will no longer be
+notified about new releases, and any existing cache file is now orphaned.
+
+`HEVY_MCP_DEBUG=1` is the only remaining diagnostic; it writes to stderr on your
+own machine and never leaves it.
+
+For the full account of what upstream collected, where it was sent, and a fair
+statement of upstream's own mitigations, see the
+[Telemetry and network activity section in the repository README](https://github.com/aaearon/hevy-mcp#telemetry-and-network-activity).
+
 ## See it in action
 
 [![Hevy MCP demo showing an AI assistant analyzing six weeks of Hevy training data](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.gif)](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.mp4)
@@ -421,7 +445,6 @@ self-hosted Streamable HTTP.
 | `HEVY_MCP_API_TIMEOUT`       | `30000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 30 seconds.                      |
 | `HEVY_MCP_DEBUG`             | Disabled       | Local Node          | Set to exactly `1` for privacy-bounded diagnostics on stderr. Stdout remains reserved for MCP JSON-RPC. |
 | `HEVY_MCP_HTTP_BEARER_TOKEN` | None           | Non-loopback HTTP   | Required when `--host` is not loopback; use a separate token, never the Hevy API key.                   |
-| `XDG_CACHE_HOME`             | `~/.cache`     | Local stdio         | Changes the root for the npm update-check cache at `hevy-mcp/update-check.json`.                        |
 | `-h`, `--help`               | N/A            | Local stdio CLI     | Print supported options and exit.                                                                       |
 | `-v`, `--version`            | N/A            | Local stdio CLI     | Print the installed version and exit.                                                                   |
 

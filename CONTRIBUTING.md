@@ -207,6 +207,15 @@ both runtimes. `packages/hevy-client` owns the native-fetch Hevy client:
   and Cloudflare Workers.
 - The allowed dependency graph is `hevy-client → core → node/worker`.
 
+This fork also enforces a network boundary: **`api.hevyapp.com` is the only host
+the server may contact.** All upstream telemetry (`@sentry/*`,
+`@opentelemetry/*`) and upstream's npm registry update check have been removed,
+and must not be reintroduced — including through an upstream merge. Do not add
+any new outbound request without raising it first.
+`tests/unit/no-runtime-telemetry.test.ts` guards this, but it is a text-scanning
+tripwire with documented blind spots (see `AGENTS.md`), not a proof; read
+upstream merge diffs by hand.
+
 `packages/node/src/utils/stdio-parsing.ts` patches private MCP SDK
 stdio fields such as `_readBuffer` and `_buffer`. After every
 `MCP TypeScript SDK` upgrade,
