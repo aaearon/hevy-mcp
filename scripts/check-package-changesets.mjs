@@ -45,6 +45,26 @@ async function readPackageName(packagePath) {
 	}
 }
 
+/**
+ * Packages listed in `.changeset/config.json` `ignore` are never versioned or
+ * published, and `npx changeset` refuses to author a changeset for them, so
+ * demanding one here would be unsatisfiable.
+ */
+async function readIgnoredPackages() {
+	try {
+		const contents = await readFile(
+			resolve(root, ".changeset/config.json"),
+			"utf8",
+		);
+		const config = JSON.parse(contents);
+		return new Set(Array.isArray(config.ignore) ? config.ignore : []);
+	} catch {
+		return new Set();
+	}
+}
+
+const ignoredPackages = await readIgnoredPackages();
+
 const changedPackagePaths = new Set();
 for (const file of changedFiles) {
 	const match = file.match(/^packages\/([^/]+)(?:\/|$)/);
@@ -54,7 +74,9 @@ for (const file of changedFiles) {
 const changedPackages = new Map();
 for (const path of changedPackagePaths) {
 	const packageName = await readPackageName(path);
-	if (packageName) changedPackages.set(path, packageName);
+	if (packageName && !ignoredPackages.has(packageName)) {
+		changedPackages.set(path, packageName);
+	}
 }
 
 if (changedPackages.size === 0) {

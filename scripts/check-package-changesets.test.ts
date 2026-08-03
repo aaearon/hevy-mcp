@@ -50,6 +50,7 @@ async function commitFixture(root: string) {
 async function createFixture(
 	options: {
 		existingChangeset?: boolean;
+		ignore?: string[];
 		packageName?: string;
 		packagePath?: string;
 	} = {},
@@ -75,6 +76,11 @@ async function createFixture(
 		'export const value = "base";\n',
 	);
 	await writeFixtureFile(root, ".changeset/README.md", "# Changesets\n");
+	await writeFixtureFile(
+		root,
+		".changeset/config.json",
+		JSON.stringify({ ignore: options.ignore ?? [] }) + "\n",
+	);
 	if (options.existingChangeset) {
 		await writeFixtureFile(
 			root,
@@ -196,6 +202,25 @@ describe("package changeset coverage", () => {
 		const result = await runCheck(root, base);
 
 		expect(result.exitCode).toBe(0);
+	});
+
+	it("skips packages that .changeset/config.json ignores", async () => {
+		const { base, root } = await createFixture({
+			ignore: ["@example/pkg"],
+		});
+		await writeFixtureFile(
+			root,
+			"packages/example/src/index.js",
+			'export const value = "changed";\n',
+		);
+		await commitFixture(root);
+
+		const result = await runCheck(root, base);
+
+		expect(result.exitCode).toBe(0);
+		expect(result.stdout).toContain(
+			"No workspace package changes require a package changeset.",
+		);
 	});
 
 	it.each([
