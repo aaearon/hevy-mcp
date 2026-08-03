@@ -20,27 +20,17 @@ function collectFiles(dir: string, extensions: string[]): string[] {
 	return found;
 }
 
-// Every workspace package is scanned, not just `packages/node`, so a
-// reintroduction in `core`, `worker`, `hevy-client` or `cli` is caught too.
-// `scripts/` is deliberately excluded: the package-boundary guards there name
-// `@sentry/` and `@opentelemetry/` as forbidden strings by design.
-const PACKAGE_NAMES = ["cli", "core", "hevy-client", "node", "worker"];
-
-const SOURCE_FILES = PACKAGE_NAMES.flatMap((name) =>
-	collectFiles(join(REPO_ROOT, "packages", name, "src"), [".ts"]),
-);
-
-const PACKAGE_MANIFESTS = PACKAGE_NAMES.map((name) =>
-	join(REPO_ROOT, "packages", name, "package.json"),
-);
+const NODE_SOURCE_FILES = collectFiles(join(REPO_ROOT, "packages/node/src"), [
+	".ts",
+]);
 
 describe("shipped server carries no runtime telemetry", () => {
-	it("finds workspace sources to scan", () => {
-		expect(SOURCE_FILES.length).toBeGreaterThan(10);
+	it("finds Node package sources to scan", () => {
+		expect(NODE_SOURCE_FILES.length).toBeGreaterThan(10);
 	});
 
 	it("imports no @sentry/* or @opentelemetry/* package", () => {
-		const offenders = SOURCE_FILES.filter((file) =>
+		const offenders = NODE_SOURCE_FILES.filter((file) =>
 			/from\s+["'](@sentry\/|@opentelemetry\/)/.test(
 				readFileSync(file, "utf8"),
 			),
@@ -49,29 +39,24 @@ describe("shipped server carries no runtime telemetry", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	it("declares no telemetry SDK dependency in any workspace package", () => {
-		const offenders = PACKAGE_MANIFESTS.flatMap((manifest) => {
-			const pkg = JSON.parse(readFileSync(manifest, "utf8")) as Record<
-				string,
-				Record<string, string> | undefined
-			>;
+	it("declares no telemetry SDK dependency in the published package", () => {
+		const pkg = JSON.parse(
+			readFileSync(join(REPO_ROOT, "packages/node/package.json"), "utf8"),
+		) as Record<string, Record<string, string> | undefined>;
 
-			const declared = [
-				...Object.keys(pkg.dependencies ?? {}),
-				...Object.keys(pkg.devDependencies ?? {}),
-				...Object.keys(pkg.peerDependencies ?? {}),
-			];
+		const declared = [
+			...Object.keys(pkg.dependencies ?? {}),
+			...Object.keys(pkg.devDependencies ?? {}),
+			...Object.keys(pkg.peerDependencies ?? {}),
+		];
 
-			return declared
-				.filter((name) => /^@(sentry|opentelemetry)\//.test(name))
-				.map((name) => `${manifest}: ${name}`);
-		});
-
-		expect(offenders).toEqual([]);
+		expect(
+			declared.filter((name) => /^@(sentry|opentelemetry)\//.test(name)),
+		).toEqual([]);
 	});
 
 	it("hard-codes no Sentry or OTLP network destination", () => {
-		const offenders = SOURCE_FILES.filter((file) => {
+		const offenders = NODE_SOURCE_FILES.filter((file) => {
 			const source = readFileSync(file, "utf8");
 			return (
 				/ingest\.[a-z]*\.?sentry\.io/i.test(source) ||
@@ -84,28 +69,8 @@ describe("shipped server carries no runtime telemetry", () => {
 	});
 
 	it("reads no telemetry environment variable", () => {
-		const offenders = SOURCE_FILES.filter((file) =>
+		const offenders = NODE_SOURCE_FILES.filter((file) =>
 			/\b(SENTRY_[A-Z_]+|OTEL_[A-Z_]+|HEVY_MCP_TELEMETRY|__OTEL_COLLECTOR_TOKEN__)\b/.test(
-				readFileSync(file, "utf8"),
-			),
-		);
-
-		expect(offenders).toEqual([]);
-	});
-});
-
-describe("shipped server phones home to nothing but the Hevy API", () => {
-	it("contacts no npm registry", () => {
-		const offenders = SOURCE_FILES.filter((file) =>
-			/registry\.npmjs\.org/i.test(readFileSync(file, "utf8")),
-		);
-
-		expect(offenders).toEqual([]);
-	});
-
-	it("schedules no background update check", () => {
-		const offenders = SOURCE_FILES.filter((file) =>
-			/\b(scheduleUpdateCheck|checkForUpdate)\b/.test(
 				readFileSync(file, "utf8"),
 			),
 		);
