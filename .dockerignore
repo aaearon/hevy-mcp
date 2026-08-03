@@ -14,6 +14,11 @@
 !tsconfig.base.json
 !tsconfig.json
 !packages/
+# Only `packages/cli/package.json` is needed: `npm ci` validates every
+# workspace declared in `package-lock.json`, but the CLI's own sources are
+# never built or shipped by this image.
+!packages/cli/
+!packages/cli/package.json
 !packages/hevy-client/
 !packages/hevy-client/**
 !packages/core/

@@ -12,6 +12,7 @@ FROM node:24-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
+COPY packages/cli/package.json packages/cli/package.json
 COPY packages/hevy-client/package.json packages/hevy-client/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/node/package.json packages/node/package.json
@@ -33,6 +34,7 @@ WORKDIR /app
 # better-sqlite3 ships prebuilt binaries; python/build tools are only needed
 # when a prebuild is unavailable for the platform.
 COPY package.json package-lock.json ./
+COPY packages/cli/package.json packages/cli/package.json
 COPY packages/hevy-client/package.json packages/hevy-client/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/node/package.json packages/node/package.json
