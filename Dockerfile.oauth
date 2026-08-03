@@ -1,8 +1,54 @@
-FROM node:24-slim
+# syntax=docker/dockerfile:1
+#
+# Fork-specific image for the `http+oauth` transport (see AGENTS.md).
+#
+# Unlike the upstream `Dockerfile`, this image does NOT use
+# `npm run build:standalone`: the OAuth provider persists grants through
+# `better-sqlite3`, a native addon that cannot be bundled into a single .mjs.
+# The runtime stage therefore keeps a production `node_modules` tree.
+
+FROM node:24-slim AS build
+
 WORKDIR /app
-COPY package*.json ./
+
+COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
+COPY packages/cli/package.json packages/cli/package.json
+COPY packages/hevy-client/package.json packages/hevy-client/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/node/package.json packages/node/package.json
+COPY packages/worker/package.json packages/worker/package.json
+COPY scripts/install-git-hooks.mjs scripts/install-git-hooks.mjs
 RUN npm ci
-COPY . .
+
+COPY packages/hevy-client/ ./packages/hevy-client/
+COPY packages/core/ ./packages/core/
+COPY packages/node/ ./packages/node/
 RUN npm run build
+
+FROM node:24-slim AS runtime
+
+ENV NODE_ENV=production
+ENV OAUTH_DB_PATH=/data/oauth.db
+WORKDIR /app
+
+# better-sqlite3 ships prebuilt binaries; python/build tools are only needed
+# when a prebuild is unavailable for the platform.
+COPY package.json package-lock.json ./
+COPY packages/cli/package.json packages/cli/package.json
+COPY packages/hevy-client/package.json packages/hevy-client/package.json
+COPY packages/core/package.json packages/core/package.json
+COPY packages/node/package.json packages/node/package.json
+COPY packages/worker/package.json packages/worker/package.json
+COPY scripts/install-git-hooks.mjs scripts/install-git-hooks.mjs
+RUN npm ci --omit=dev --workspace hevy-mcp --include-workspace-root \
+	&& npm cache clean --force
+
+COPY --from=build /app/packages/node/dist/ ./packages/node/dist/
+
+RUN mkdir -p /data && chown -R node:node /data
+USER node
+VOLUME ["/data"]
 EXPOSE 8000
-CMD ["node", "dist/cli.mjs", "--transport=http+oauth", "--port=8000"]
+
+ENTRYPOINT ["node", "/app/packages/node/dist/cli.mjs"]
+CMD ["--transport=http+oauth", "--host=0.0.0.0", "--port=8000"]

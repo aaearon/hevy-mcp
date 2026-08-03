@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-describe("src/index.ts - Environment Variable Loading", () => {
+describe("Node package environment variable loading", () => {
 	let originalEnv: NodeJS.ProcessEnv;
 
 	beforeEach(() => {
@@ -174,32 +174,6 @@ describe("src/index.ts - Environment Variable Loading", () => {
 		});
 	});
 
-	describe("Sentry initialization with environment variables", () => {
-		it("should work with Sentry when environment variables are loaded", () => {
-			// Verify that Sentry can access env vars loaded via --env-file
-			process.env.SENTRY_DSN = "https://test@sentry.io/123";
-			process.env.NODE_ENV = "production";
-
-			expect(process.env.SENTRY_DSN).toBeTruthy();
-			expect(process.env.NODE_ENV).toBe("production");
-		});
-
-		it("should handle missing Sentry configuration gracefully", () => {
-			delete process.env.SENTRY_DSN;
-
-			// Application should not crash without Sentry DSN
-			expect(process.env.SENTRY_DSN).toBeUndefined();
-		});
-
-		it("should support Sentry environment-specific configuration", () => {
-			process.env.SENTRY_ENVIRONMENT = "staging";
-			process.env.SENTRY_RELEASE = "1.18.1";
-
-			expect(process.env.SENTRY_ENVIRONMENT).toBe("staging");
-			expect(process.env.SENTRY_RELEASE).toBe("1.18.1");
-		});
-	});
-
 	describe("Edge cases and error handling", () => {
 		it("should handle undefined environment variables", () => {
 			expect(process.env.NON_EXISTENT_VAR).toBeUndefined();
@@ -344,9 +318,9 @@ describe("package.json script changes validation", () => {
 			// Verify the expected command structure
 			const inspectCommand =
 				"pnpm run build && pnpm dlx @modelcontextprotocol/inspector@latest node --env-file .env dist/index.mjs";
-			const startCommand = "node --env-file .env dist/cli.mjs";
+			const startCommand = "node --env-file .env packages/node/dist/cli.mjs";
 			const devCommand =
-				"tsx watch --env-file .env --clear-screen=false src/cli.ts";
+				"tsx watch --env-file .env --clear-screen=false packages/node/src/cli.ts";
 
 			expect(inspectCommand).toContain("--env-file .env");
 			expect(startCommand).toContain("--env-file .env");
@@ -354,11 +328,11 @@ describe("package.json script changes validation", () => {
 		});
 
 		it("should verify --env-file comes before the script path", () => {
-			const command = "node --env-file .env dist/cli.mjs";
+			const command = "node --env-file .env packages/node/dist/cli.mjs";
 			const parts = command.split(" ");
 
 			const envFileIndex = parts.indexOf("--env-file");
-			const scriptIndex = parts.indexOf("dist/cli.mjs");
+			const scriptIndex = parts.indexOf("packages/node/dist/cli.mjs");
 
 			expect(envFileIndex).toBeGreaterThan(0);
 			expect(scriptIndex).toBeGreaterThan(envFileIndex);

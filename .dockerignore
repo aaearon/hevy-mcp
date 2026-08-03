@@ -1,5 +1,32 @@
-# hevy-mcp no longer publishes Docker images.
-# This file remains only to document the deprecation and prevent accidental builds.
-node_modules
-dist
-.git
+# Deny everything by default so local credentials and unrelated repository
+# files are never sent to the Docker daemon or retained in its build cache.
+**
+
+# Docker must still be able to read the build definition and ignore rules.
+!Dockerfile
+# Fork-specific http+oauth image.
+!Dockerfile.oauth
+!.dockerignore
+
+# Standalone build inputs.
+!package.json
+!package-lock.json
+!tsconfig.base.json
+!tsconfig.json
+!packages/
+# Only `packages/cli/package.json` is needed: `npm ci` validates every
+# workspace declared in `package-lock.json`, but the CLI's own sources are
+# never built or shipped by this image.
+!packages/cli/
+!packages/cli/package.json
+!packages/hevy-client/
+!packages/hevy-client/**
+!packages/core/
+!packages/core/**
+!packages/node/
+!packages/node/**
+!packages/worker/
+!packages/worker/**
+
+!scripts/
+!scripts/install-git-hooks.mjs

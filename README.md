@@ -1,352 +1,680 @@
-# hevy-mcp: Model Context Protocol Server for Hevy Fitness API
+# Hevy MCP Server
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+<div align="center">
+
+**Talk to your Hevy workout data from Claude, Cursor, Codex, and other MCP clients.**
+
+[![npm version](https://img.shields.io/npm/v/hevy-mcp.svg)](https://www.npmjs.com/package/hevy-mcp)
+[![npm downloads](https://img.shields.io/npm/dm/hevy-mcp.svg)](https://www.npmjs.com/package/hevy-mcp)
 [![Build and Test](https://github.com/chrisdoc/hevy-mcp/actions/workflows/build-and-test.yml/badge.svg)](https://github.com/chrisdoc/hevy-mcp/actions/workflows/build-and-test.yml)
 [![Codecov](https://codecov.io/gh/chrisdoc/hevy-mcp/branch/main/graph/badge.svg)](https://codecov.io/gh/chrisdoc/hevy-mcp)
-[![npm version](https://img.shields.io/npm/v/hevy-mcp.svg)](https://www.npmjs.com/package/hevy-mcp)
+[![GitHub stars](https://img.shields.io/github/stars/chrisdoc/hevy-mcp?style=flat)](https://github.com/chrisdoc/hevy-mcp/stargazers)
+[![Hosted on Cloudflare](https://img.shields.io/badge/Hosted_on-Cloudflare-F38020?logo=cloudflare&logoColor=white)](#hosted-cloudflare-endpoint)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![MCP Toplist](https://mcptoplist.com/badge/io.github.chrisdoc%2Fhevy-mcp.svg)](https://mcptoplist.com/server/io.github.chrisdoc%2Fhevy-mcp)
 
-A Model Context Protocol (MCP) server implementation that interfaces with the [Hevy fitness tracking app](https://www.hevyapp.com/) and its [API](https://api.hevyapp.com/docs/). This server enables AI assistants like **Claude Desktop** and **Cursor** to access and manage workout data, routines, and exercise templates through the Hevy API (requires PRO subscription).
+[Connect to the hosted MCP](#connect-to-the-hosted-endpoint) · [Use the Hevy CLI](#hevy-cli) · [Watch the 18-second demo](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.mp4) · [Explore all 26 tools](#tools)
 
----
+</div>
 
-## 📋 Table of Contents
+## Hevy CLI
 
-- [Features](#features)
-- [Quick Start](#quick-start)
-- [Prerequisites](#prerequisites)
-- [Installation](#installation)
-  - [Claude Desktop Configuration](#claude-desktop-configuration)
-  - [Cursor Configuration](#cursor-configuration)
-  - [Other MCP Clients (via add-mcp)](#other-mcp-clients-via-add-mcp)
-- [Why hevy-mcp?](#why-hevy-mcp)
-- [Configuration](#configuration)
-- [Available MCP Tools](#available-mcp-tools)
-- [Development & Contributing](#development--contributing)
+Prefer the terminal? The separate
+[`@chrisdoc/hevy-cli`](https://www.npmjs.com/package/@chrisdoc/hevy-cli)
+package reads workouts, routines, exercises, and body measurements directly
+from the Hevy API, and can create or update those resources with explicit
+confirmation. Deletion is not supported.
 
----
+```sh
+npm install -g @chrisdoc/hevy-cli
+export HEVY_API_KEY=your-hevy-api-key
 
-## 🚀 Features
-
-- **Workout Management**: Fetch, create, and update workouts.
-- **Routine Management**: Access and manage workout routines.
-- **Exercise Templates**: Browse available exercise templates with in-memory caching.
-- **Folder Organization**: Manage routine folders.
-
----
-
-## 🏁 Quick Start
-
-Pick the workflow that fits your setup:
-
-| Scenario              | Command                                                                                     | Requirements               |
-| :-------------------- | :------------------------------------------------------------------------------------------ | :------------------------- |
-| **One-off stdio run** | `HEVY_API_KEY=sk_live... npx -y hevy-mcp` or `HEVY_API_KEY=sk_live... bunx hevy-mcp@latest` | Node.js ≥ 26, Hevy API key |
-| **HTTP mode**         | `HEVY_API_KEY=sk_live... npx -y hevy-mcp --transport=http --port=3000`                      | Node.js ≥ 26, Hevy API key |
-| **Local development** | `npm install && npm run build && npm start`                                                 | `.env` with `HEVY_API_KEY` |
-
----
-
-## 🛠️ Prerequisites
-
-- **Node.js**: v26 or higher (strongly recommended to use the exact version pinned in `.nvmrc`).
-- **npm**: v10 or higher.
-- **Bun** (optional): If you want to launch with `bunx`.
-- **Hevy API key**: Required for all operations (available with Hevy PRO).
-
----
-
-## 📦 Installation
-
-### Run via npx or bunx
-
-You can launch the server directly without cloning. Both launchers are covered
-by nightly smoke tests:
-
-```bash
-# npm launcher
-HEVY_API_KEY=your_hevy_api_key_here npx -y hevy-mcp
-
-# bun launcher
-HEVY_API_KEY=your_hevy_api_key_here bunx hevy-mcp@latest
+hevy workouts list --page-size 10
+hevy summary --weeks 4
 ```
 
-### Manual Installation
+Add `--json` to any command for scripts and pipelines. The CLI is a standalone
+Hevy API client, not an MCP wrapper. See
+[`packages/cli/README.md`](packages/cli/README.md) for the full command
+reference, pagination behavior, and exit codes.
 
-```bash
-# Clone the repository
-git clone https://github.com/chrisdoc/hevy-mcp.git
-cd hevy-mcp
+`hevy-mcp` is an open-source [Model Context Protocol (MCP)](https://modelcontextprotocol.io/)
+server for the [Hevy](https://www.hevyapp.com/) fitness and workout tracking
+app. It lets AI assistants read, analyze, create, and update your Hevy workouts,
+routines, exercise templates, and body measurements through authenticated Hevy
+API requests.
 
-# Install dependencies
-npm install
+The repository is organized as a private workspace with explicit runtime
+boundaries: `@hevy-mcp/hevy-client` owns the web-safe Hevy client,
+`@hevy-mcp/core` owns MCP tools and server construction, `hevy-mcp` is the
+published Node.js stdio adapter, and `@hevy-mcp/worker` is the private
+Cloudflare HTTP/OAuth adapter. Only the Node workspace is publishable.
 
-# Create .env and add your keys
-cp .env.sample .env
-# Edit .env and add your HEVY_API_KEY
+> A Hevy API key, available with **Hevy PRO**, is required.
+
+## Telemetry and network activity
+
+**This fork of [`chrisdoc/hevy-mcp`](https://github.com/chrisdoc/hevy-mcp) has
+all runtime telemetry removed.** No OpenTelemetry, no Sentry, no analytics, no
+version check, no phone-home of any kind. Nothing about your usage is reported
+to the maintainer of this fork or to upstream.
+
+### What this server contacts
+
+**The only host this server ever contacts is `api.hevyapp.com`** — the Hevy API
+itself, which is the entire purpose of the product. Those requests carry your
+Hevy API key and your workout data, because they have to. There is no second
+destination.
+
+Specifically:
+
+- **No npm registry check.** Upstream ran a once-per-process, 24-hour-cached
+  `GET https://registry.npmjs.org/hevy-mcp` at startup to notify you about newer
+  releases. It was unauthenticated and carried no identifier, but it was on by
+  default with no way to turn it off. **This fork removes it entirely**, along
+  with its `~/.cache/hevy-mcp/update-check.json` cache file. If you are
+  migrating from upstream, that is a deliberate behavioural difference: you will
+  no longer be told when a new version ships, and any existing cache file on
+  your machine is now orphaned and unused. A `tests/unit/no-runtime-telemetry.test.ts`
+  assertion keeps it from coming back.
+- **No telemetry exporters.** See the history below for what was removed.
+- **Local diagnostics only.** `HEVY_MCP_DEBUG=1` is the sole remaining
+  diagnostic. It writes to stderr on your own machine and never leaves it.
+- **Cloudflare Worker.** Its egress is the Hevy API only. The `claude.ai` /
+  `claude.com` origin lists in the Worker are a **CORS allowlist**, not
+  outbound calls.
+
+### What upstream did, and why this fork exists
+
+The following is stated factually from the source that was removed in commit
+`dad8ca6`, including upstream's own mitigations. It is history, not an
+accusation.
+
+- **It was on by default.** Telemetry was opt-**out** via `HEVY_MCP_TELEMETRY`,
+  and only the exact string `"0"` disabled it. Unset meant enabled.
+- **Two backends at once.** A Sentry DSN **hardcoded in the source** at
+  `tracesSampleRate: 1.0` (100% of traces, no sampling), plus an OTLP collector
+  at `otel.chrisdoc.dev/v1` whose bearer token was **baked into the published
+  npm tarball at build time**, forwarding to Honeycomb.
+- **A stable pseudonymous identifier.** An HMAC-SHA256 computed using **your
+  Hevy API key as the secret** against a fixed context string, sent to Sentry
+  via `setUser` and stamped as `user.hash` on **every span**. The key itself was
+  never transmitted and the hash is not reversible — but it is a stable
+  identifier that follows one API key across every session, machine, and
+  release.
+- **What was emitted.** `mcp.tool.invocations`, `mcp.tool.outcomes`,
+  `mcp.tool.errors`, tool duration, `mcp.session.started`, `mcp.session.ended`,
+  `hevy.expected_404s`, plus roughly 15 nested trace spans wrapping tool
+  handlers.
+- **Upstream's mitigations, stated fairly.** `sendDefaultPii` was `false`; a
+  scrubber stripped 19 MCP attributes before Sentry export (including request
+  arguments, logging messages, resource URIs, session IDs, prompt names, and
+  client name/version); and counts were bucketed
+  (`"0" | "1" | "2-10" | "11-50" | "51+"`) rather than sent raw. Upstream was
+  not collecting workout contents or API keys.
+
+Two things are **unverified** and are deliberately not asserted here: whether
+those endpoints are still live today, and whether the OTLP path applied the same
+scrubbing as the Sentry path. The `beforeSendSpan` hook was Sentry-specific,
+which _suggests_ OTel-bound spans were less scrubbed, but this was not
+confirmed.
+
+## See it in action
+
+[![Hevy MCP demo showing an AI assistant analyzing six weeks of Hevy training data](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.gif)](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.mp4)
+
+<p align="center"><sub>Click the preview to play the full-quality 18-second demo.</sub></p>
+
+In the demo, the assistant retrieves real Hevy data and answers a multi-part
+training question with evidence from the user's workout history.
+
+## What can you do with it?
+
+- **Analyze training progress:** summarize 1-12 weeks of workouts and body
+  measurements in one tool call.
+- **Ask questions in plain language:** find recent sessions, frequently trained
+  exercises, consistency gaps, routine details, or exercise history.
+- **Plan and log training:** create or update workouts, routines, routine folders,
+  custom exercises, and body measurements.
+- **Search without huge responses:** discover routines and exercise templates with
+  compact, AI-friendly results.
+- **Connect from your preferred MCP client:** use the hosted Streamable HTTP
+  endpoint or run locally with Codex, Claude Desktop, Cursor, and other clients.
+- **Start without installing anything:** connect directly to the production
+  Cloudflare Worker—no Node.js, package download, or Docker container required.
+- **Keep local control when you want it:** run the same server with `npx`, `bunx`,
+  or the official Docker image.
+
+Try asking:
+
+> Analyze my training over the last six weeks. Show workouts per week, my most
+> frequently trained exercises, any obvious gaps or inconsistencies, and cite the
+> workout evidence you used.
+
+> Find my push-day routine and show its exercises and sets.
+
+> Compare my recent body measurements with my training consistency.
+
+> Create a completed workout from my saved routine. Ask me for any missing set
+> results before writing it to Hevy.
+
+## Quick start
+
+### 1. Get your Hevy API key
+
+Create an API key in Hevy, then keep it somewhere secure. API access currently
+requires a Hevy PRO subscription.
+
+### 2. Connect `hevy-mcp` to your client
+
+The hosted Cloudflare endpoint is the fastest way to start. It runs remotely,
+so your client does not need Node.js, Bun, Docker, or a local server process.
+
+#### Connect to the hosted endpoint
+
+Production URL:
+
+```text
+https://mcp.hevy-mcp.dev/mcp
 ```
 
----
+The endpoint uses Streamable HTTP. Send your Hevy API key as a bearer token on
+every request.
 
-## 🔗 Integration
+##### Codex
 
-### Claude Desktop Configuration
+Codex CLI, the Codex desktop app, and the IDE extension share the same MCP
+configuration. Make your Hevy API key available in the environment that starts
+Codex, then add the hosted server:
 
-To use this server with Claude Desktop, add the following to your `claude_desktop_config.json`:
+```bash
+export HEVY_API_KEY=your-hevy-api-key
+codex mcp add hevy \
+  --url https://mcp.hevy-mcp.dev/mcp \
+  --bearer-token-env-var HEVY_API_KEY
+```
 
-**macOS**: `~/Library/Application Support/Claude/claude_desktop_config.json`  
-**Windows**: `%APPDATA%\Claude\claude_desktop_config.json`
+Codex stores the environment variable name, not the key itself, in its MCP
+configuration. Restart Codex or begin a new session, then run `codex mcp list`
+to verify the server is configured.
+
+##### Other Streamable HTTP clients
+
+Clients that accept a remote MCP URL and fixed headers commonly use this shape:
 
 ```json
 {
 	"mcpServers": {
-		"hevy-mcp": {
-			"command": "npx",
-			"args": ["-y", "hevy-mcp"],
-			"env": {
-				"HEVY_API_KEY": "sk_live_your_key_here"
+		"hevy": {
+			"url": "https://mcp.hevy-mcp.dev/mcp",
+			"headers": {
+				"Authorization": "Bearer your-hevy-api-key"
 			}
 		}
 	}
 }
 ```
 
-If you prefer Bun, swap the launcher fields:
+Exact configuration keys vary by client. The hosted server requires support for
+Streamable HTTP and a fixed `Authorization` header.
 
-```json
-{
-	"command": "bunx",
-	"args": ["hevy-mcp@latest"]
-}
+> [!IMPORTANT]
+> Treat the bearer value like a password. The Worker validates it with Hevy for
+> each request, does not store it, and forwards it to Hevy only as the required
+> `api-key` header.
+
+#### Run locally instead
+
+Choose local stdio if you prefer to run the server on your own machine or your
+client cannot attach a fixed authorization header to remote MCP requests.
+
+##### Codex
+
+```bash
+codex mcp add hevy \
+  --env HEVY_API_KEY=your-hevy-api-key \
+  -- npx -y hevy-mcp
 ```
 
-### Cursor Configuration
+##### Claude Desktop or Cursor
 
-Add this server under `"mcpServers"` in `~/.cursor/mcp.json`:
+Add this `mcpServers` entry to your client configuration:
 
 ```json
 {
 	"mcpServers": {
-		"hevy-mcp": {
+		"hevy": {
 			"command": "npx",
 			"args": ["-y", "hevy-mcp"],
 			"env": {
-				"HEVY_API_KEY": "your-api-key-here"
+				"HEVY_API_KEY": "your-hevy-api-key"
 			}
 		}
 	}
 }
 ```
 
-If you prefer Bun, swap the launcher fields:
+##### Google Antigravity
 
-```json
-{
-	"command": "bunx",
-	"args": ["hevy-mcp@latest"]
-}
-```
+There are two ways to configure the Hevy MCP server for Google Antigravity (`agy`):
 
-### Other MCP Clients (via add-mcp)
+###### Option A: Automatic Plugin Installation (Recommended)
 
-For a generic setup flow across MCP clients, use [`add-mcp`](https://github.com/neon-solutions/add-mcp):
+This utilizes the built-in plugin system:
 
-```bash
-npx add-mcp hevy-mcp --env "HEVY_API_KEY=secret"
-```
+1. Install the plugin:
 
-This bootstraps the `hevy-mcp` entry in your client config without manual JSON edits.
+   ```bash
+   agy plugin install https://github.com/chrisdoc/hevy-mcp
+   ```
 
----
+2. Provide the `HEVY_API_KEY` in your host shell environment so the CLI child process can inherit it:
+   - **Persistent:** Save the environment variable `HEVY_API_KEY` in your system/shell configurations:
+     - **macOS / Linux:** Add it to your shell profile configurations (e.g., `~/.zshrc` or `~/.bashrc`):
+       ```bash
+       export HEVY_API_KEY="your-actual-api-key"
+       ```
+     - **Windows:** Add it to your User or System Environment Variables. In PowerShell, you can run:
+       ```powershell
+       [Environment]::SetEnvironmentVariable("HEVY_API_KEY", "your-actual-api-key", "User")
+       ```
+   - **Temporary (Session-only):** If you do not want to persist the key, export it in your active terminal session before running `agy`:
+     ```bash
+     export HEVY_API_KEY="your-actual-api-key"
+     ```
 
-## ✨ Why hevy-mcp?
+###### Option B: Manual Configuration (No Plugin)
 
-- 🚀 **High Performance**: Built with the **Oxc** toolchain (`oxlint`/`oxfmt`) for near-instant linting and formatting.
-- 🛡️ **Type Safety**: Fully type-safe implementation using **Zod** and **Kubb**-generated API clients.
-- 📉 **Observability**: Optional, opt-in **Sentry** monitoring (set `SENTRY_DSN`) for error tracking, lifecycle and tool tracing, and stdio parse diagnostics.
-- ⚡ **Optimized**: Includes in-memory caching for exercise templates to reduce API latency.
+If you prefer configuring it statically via the global configuration file:
 
----
+1. Open your global MCP configuration file:
+   - **Location:** `~/.gemini/config/mcp_config.json`
 
-## ⚙️ Configuration
+2. Add the `hevy` configuration block under the `mcpServers` key. Make sure to merge this entry with any existing servers you have configured rather than replacing the entire file contents:
+   ```json
+   {
+   	"mcpServers": {
+   		"hevy": {
+   			"command": "npx",
+   			"args": ["-y", "hevy-mcp"],
+   			"env": {
+   				"HEVY_API_KEY": "your-actual-api-key"
+   			}
+   		}
+   	}
+   }
+   ```
 
-Supply your Hevy API key via the `HEVY_API_KEY` environment variable (in
-`.env` or system environment).
+Common local configuration locations:
 
-> ⚠️ CLI API key arguments (`--hevy-api-key=...`, `--hevyApiKey=...`,
-> `hevy-api-key=...`) are still accepted for backward compatibility, but are
-> deprecated and insecure. Use `HEVY_API_KEY` instead.
+- **Claude Desktop on macOS:**
+  `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Claude Desktop on Windows:**
+  `%APPDATA%\Claude\claude_desktop_config.json`
+- **Cursor:** `~/.cursor/mcp.json`
 
-```env
-# Example .env
-HEVY_API_KEY=your_hevy_api_key_here
-```
+Restart or reconnect the client after saving the file.
 
-### 🧠 Exercise Template Cache Behavior
+##### Any stdio MCP client
 
-`search-exercise-templates` now uses a shared in-memory async cache for the
-full exercise template catalog:
-
-- **TTL**: 5 minutes per cached catalog entry.
-- **Memory bound**: max 1 catalog entry (LRU bounded cache).
-- **In-flight de-duplication**: concurrent requests share the same active
-  fetch when possible.
-- **Manual refresh**: set `refresh: true` in the tool input to invalidate the
-  cached catalog and force a re-fetch from the Hevy API.
-
-This cache currently applies to `search-exercise-templates` only. Paginated
-`get-exercise-templates` requests still call the API directly to keep paging
-behavior explicit and avoid cross-page invalidation complexity.
-
-### 📡 Sentry Monitoring (opt-in)
-
-`hevy-mcp` can report errors and usage to Sentry, but it is **disabled by default** — no telemetry is sent unless you opt in. To enable it, point `SENTRY_DSN` at your own Sentry project; when the variable is unset, `@sentry/node` is never initialized and all instrumentation is a no-op.
-
-| Variable                    | Default        | Description                                                            |
-| :-------------------------- | :------------- | :--------------------------------------------------------------------- |
-| `SENTRY_DSN`                | _unset_        | Your Sentry project DSN. Required to enable Sentry; unset = fully off. |
-| `SENTRY_RELEASE`            | `name@version` | Release identifier reported to Sentry.                                 |
-| `SENTRY_TRACES_SAMPLE_RATE` | `1.0`          | Fraction of transactions traced (0.0–1.0).                             |
-
-When enabled it initializes `@sentry/node` with tracing and PII collection disabled, and adds:
-
-- lifecycle spans around server build, run, and stdio connect
-- per-tool execution spans plus captured handler exceptions
-- stdio parse diagnostics, including leading UTF-8 BOM stripping and invalid JSON context
-- a deterministic pseudonymous Sentry user ID derived from `HEVY_API_KEY`, so the raw key is never sent to Sentry
-
----
-
-## Transport Modes
-
-`hevy-mcp` supports two transport modes:
-
-### stdio (default)
-
-The default mode. Used by all MCP clients that launch the server as a subprocess:
+Configure your client to launch this command with `HEVY_API_KEY` in the child
+process environment:
 
 ```bash
-HEVY_API_KEY=your_key npx -y hevy-mcp
+npx -y hevy-mcp
 ```
 
-### Streamable HTTP
-
-Use `--transport=http` to start a Streamable HTTP server. The server listens on `/mcp` and manages one MCP session per client connection.
-
-```bash
-HEVY_API_KEY=your_key npx -y hevy-mcp --transport=http --port=3000
-```
-
-Default port is `3000`. Inspect with:
-
-```bash
-npx @modelcontextprotocol/inspector http://localhost:3000/mcp
-```
+`npx` requires Node.js 20 or newer. Restart or reconnect your client after
+saving its configuration.
 
 <details>
-<summary><strong>⚠️ Deprecation Notice (Docker)</strong></summary>
+<summary><strong>Use bunx instead</strong></summary>
 
-### Docker
+Requires [Bun](https://bun.sh/):
 
-Docker-based workflows are retired. The provided `Dockerfile` now exits with a message pointing to the stdio-native experience. Legacy GHCR images are no longer updated.
+```json
+{
+	"mcpServers": {
+		"hevy": {
+			"command": "bunx",
+			"args": ["hevy-mcp@latest"],
+			"env": {
+				"HEVY_API_KEY": "your-hevy-api-key"
+			}
+		}
+	}
+}
+```
 
 </details>
 
----
+<details>
+<summary><strong>Use Docker instead</strong></summary>
 
-## 🛠️ Available MCP Tools
-
-| Category              | Tools                                                                                                                              |
-| :-------------------- | :--------------------------------------------------------------------------------------------------------------------------------- |
-| **Workouts**          | `get-workouts`, `get-workout`, `create-workout`, `update-workout`, `get-workout-count`, `get-workout-events`                       |
-| **Routines**          | `get-routines`, `get-routine`, `create-routine`, `update-routine`                                                                  |
-| **Templates**         | `get-exercise-templates`, `get-exercise-template`, `search-exercise-templates`, `create-exercise-template`, `get-exercise-history` |
-| **Folders**           | `get-routine-folders`, `get-routine-folder`, `create-routine-folder`                                                               |
-| **Body Measurements** | `get-body-measurements`, `get-body-measurement`, `create-body-measurement`, `update-body-measurement`                              |
-| **User**              | `get-user-info`                                                                                                                    |
-
-> **Delete operations are currently unsupported:** The upstream Hevy OpenAPI
-> spec does not expose `DELETE` endpoints for workouts, routines, routine
-> folders, exercise templates, or body measurements, so `hevy-mcp` does not
-> provide delete tools for these resources.
-
----
-
-## 👨‍💻 Development & Contributing
-
-### Quick Commands
-
-- **Build**: `npm run build`
-- **Lint/Format**: `npm run check` (uses oxlint/oxfmt)
-- **Type Check**: `npm run check:types`
-- **Unit Tests**: `npx vitest run --exclude tests/integration/**`
-- **Full Test Suite**: `npm test` (requires `HEVY_API_KEY`)
-- **Changeset Check**: `npm run check:changeset`
-
-For a detailed senior engineer guide, please refer to [AGENTS.md](./AGENTS.md).
-
-### Pull Request Checks
-
-- **Conventional Commits**: CI lints commit messages on pull requests, so use
-  prefixes such as `feat:`, `fix:`, `docs:`, `ci:`, `chore:`, `refactor:`,
-  `test:`, or `style:`.
-- **Type Checking**: CI runs `npm run check:types` on pull requests and pushes
-  to `main`; run this locally before opening a PR.
-- **Changesets**: Contributor pull requests targeting `main` must include a
-  changeset. Dependabot PRs and automated `changeset-release/main` release PRs
-  are handled by automation and skip this check.
-
-### API Client Generation
-
-The API client is automatically generated from the OpenAPI spec using [Kubb](https://kubb.dev/):
+Official images support `linux/amd64` and `linux/arm64`. Keep stdin open with
+`-i` because the container runs the stdio MCP server:
 
 ```bash
-npm run build:client
+export HEVY_API_KEY=your-hevy-api-key
+docker run -i --rm -e HEVY_API_KEY ghcr.io/chrisdoc/hevy-mcp:latest
 ```
 
-### Versioning & Releases
+For an MCP client, store the key in a protected environment file and configure
+the client to launch Docker:
 
-This project uses [Changesets](https://github.com/changesets/changesets) to
-manage versioning, changelogs, releases, and pull request validation.
+```json
+{
+	"mcpServers": {
+		"hevy": {
+			"command": "docker",
+			"args": [
+				"run",
+				"-i",
+				"--rm",
+				"--env-file",
+				"/absolute/path/to/hevy-mcp.env",
+				"ghcr.io/chrisdoc/hevy-mcp:latest"
+			]
+		}
+	}
+}
+```
 
-1. **Routine Release Cadence**: Merge the automated
-   `changeset-release/main` (**"Version Packages"**) Pull Request on a regular
-   cadence (weekly is a good default) instead of ad-hoc frequent merges.
-2. **Urgent Release Exception**: Security fixes and high-impact,
-   user-facing bug fixes can be released immediately outside the routine
-   cadence.
-3. **Use Bump Changesets Only for User-Facing Runtime Changes**: If your
-   change is user-facing/runtime-visible, run:
-   ```bash
-   npx changeset
-   ```
-   Follow the prompts to choose `patch`, `minor`, or `major`, then write a
-   short summary. This creates a markdown file under `.changeset/`.
-4. **Use Empty Changesets for Internal-Only Work**: Docs, CI, test-only,
-   refactor, and chore changes should use an empty changeset:
-   ```bash
-   npx changeset --empty
-   ```
-5. **Validate Before Opening a PR**: Contributor pull requests targeting
-   `main` are checked for a changeset in CI. Dependabot PRs and automated
-   `changeset-release/main` release PRs are handled separately. You can run the
-   same validation locally with:
-   ```bash
-   npm run check:changeset
-   ```
-6. **Automated Releases**:
-   - Pushing changesets to `main` triggers a GitHub Action that automatically
-     creates or updates a **"Version Packages"** Pull Request.
-   - When this Pull Request is merged, the package is automatically built,
-     published to npm (via OIDC Trusted Publishing), and a GitHub Release is
-     created.
+Pin an exact image tag such as `ghcr.io/chrisdoc/hevy-mcp:X.Y.Z` when you need
+reproducible upgrades.
 
----
+</details>
 
-## 📄 License & Acknowledgements
+You can also add the npm server to supported clients with
+[`add-mcp`](https://github.com/neon-solutions/add-mcp):
 
-- **License**: [MIT](./LICENSE)
-- **Credits**: [Model Context Protocol](https://github.com/modelcontextprotocol), [Hevy Fitness](https://www.hevyapp.com/).
+```bash
+npx add-mcp hevy-mcp --env "HEVY_API_KEY=your-hevy-api-key"
+```
 
----
+### 3. Ask your first question
 
-**Contributions are welcome!** Please open an issue or PR for any major changes.
+Try one of these after restarting or reconnecting your MCP client:
+
+- “Give me a training summary for the last four weeks.”
+- “What routines do I have saved on Hevy?”
+- “Show my three most recent workouts.”
+- “Find exercise templates containing squat.”
+- “Which Hevy account is connected?”
+
+Your assistant should ask for approval before mutation tools when the client
+supports tool confirmations.
+
+## How it works
+
+```text
+Hosted:  Your AI assistant  →  Streamable HTTP  →  Cloudflare Worker  →  Hevy API
+Local:   Your AI assistant  →  MCP over stdio   →  local hevy-mcp     →  Hevy API
+```
+
+The hosted endpoint creates a fresh MCP server and Hevy client for each request.
+It validates the supplied key with Hevy, keeps no shared user session, and does
+not persist the key. The local server follows the same tool contract but runs on
+your machine and receives the key through its child-process environment.
+
+In either mode, read tools retrieve data; mutation tools create or replace data
+only when your assistant calls them.
+
+## Guided prompts
+
+These server-provided MCP prompts coordinate common multi-step workflows:
+
+| Prompt                        | Arguments                                  | Workflow                                                                                                               |
+| ----------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `analyze-workout-progress`    | Optional `weeks` from 1-12; default `4`    | Calls `get-training-summary`, then analyzes workout activity and body-measurement trends from the returned evidence.   |
+| `create-workout-from-routine` | Required `routine_id` and UTC `start_time` | Loads a routine, collects actual completed-set data and an end time, then creates a workout without inventing results. |
+
+> [!NOTE]
+> With MCP SDK v1.29.0, clients invoking `analyze-workout-progress` with its
+> default value must send `arguments: {}`. Omitting the entire `arguments`
+> object is rejected by that SDK version before the default is applied.
+
+## Tools
+
+`hevy-mcp` registers 26 tools. Read-only tools are safe for exploration; create
+and update tools are exposed with MCP mutation annotations so compatible clients
+can request confirmation.
+
+| Category           | Tool                        | Description                                                                       |
+| ------------------ | --------------------------- | --------------------------------------------------------------------------------- |
+| Training analysis  | `get-training-summary`      | Summarize 1-12 weeks of workout activity and body-measurement trends in one call. |
+| Workouts           | `get-workouts`              | List workouts from newest to oldest with exercise and timing details.             |
+| Workouts           | `get-workout`               | Get complete details for one workout by ID.                                       |
+| Workouts           | `get-workout-count`         | Return the account's total workout count.                                         |
+| Workouts           | `get-workout-events`        | List workout update and delete events since a timestamp.                          |
+| Workouts           | `create-workout`            | Create a completed workout in Hevy.                                               |
+| Workouts           | `update-workout`            | Patch workout metadata by ID; omitted fields and all exercises remain unchanged.  |
+| Workouts           | `replace-workout-exercises` | Replace all exercises and sets while preserving workout metadata.                 |
+| Routines           | `search-routines`           | Search routine titles and return compact metadata for discovery.                  |
+| Routines           | `get-routines`              | List custom and default workout routines.                                         |
+| Routines           | `get-routine`               | Get one routine and its exercise configuration by ID.                             |
+| Routines           | `create-routine`            | Create a reusable workout routine.                                                |
+| Routines           | `update-routine`            | Replace an existing routine's content.                                            |
+| Routine folders    | `get-routine-folders`       | List default and custom routine folders.                                          |
+| Routine folders    | `get-routine-folder`        | Get one routine folder's metadata by ID.                                          |
+| Routine folders    | `create-routine-folder`     | Create a routine folder.                                                          |
+| Exercise templates | `get-exercise-templates`    | List exercise templates with equipment and muscle metadata.                       |
+| Exercise templates | `get-exercise-template`     | Get complete metadata for one exercise template by ID.                            |
+| Exercise templates | `search-exercise-templates` | Search the full exercise catalog by title substring.                              |
+| Exercise templates | `create-exercise-template`  | Create a custom exercise template.                                                |
+| Exercise history   | `get-exercise-history`      | Get past performed sets for one exercise template.                                |
+| Body measurements  | `get-body-measurements`     | List dated body measurements.                                                     |
+| Body measurements  | `get-body-measurement`      | Get the body measurement entry for one date.                                      |
+| Body measurements  | `create-body-measurement`   | Create a dated body measurement.                                                  |
+| Body measurements  | `update-body-measurement`   | Update the body measurement for an existing date.                                 |
+| Account            | `get-user-info`             | Return the user's ID, display name, and public profile URL.                       |
+
+The Hevy API currently exposes no delete endpoints for workouts, routines,
+routine folders, exercise templates, or body measurements, so there are no
+corresponding delete tools.
+
+### Resources
+
+| Name                 | URI                         | Description                                  |
+| -------------------- | --------------------------- | -------------------------------------------- |
+| `user-profile`       | `hevy://user`               | Authenticated Hevy user profile.             |
+| `workout-count`      | `hevy://workout-count`      | Total number of workouts in the account.     |
+| `exercise-templates` | `hevy://exercise-templates` | Full formatted exercise template catalog.    |
+| `routine-folders`    | `hevy://routine-folders`    | Full formatted list of Hevy routine folders. |
+
+## Hosted Cloudflare endpoint
+
+The production MCP server is live at:
+
+```text
+https://mcp.hevy-mcp.dev/mcp
+```
+
+It is the quickest way to use `hevy-mcp`: there is nothing to install or keep
+running locally, and it exposes the same 26 tools as the npm package and Docker
+image.
+
+The Cloudflare Worker uses stateless **Streamable HTTP** at `POST /mcp`.
+Clients must send their Hevy API key as a fixed authorization header:
+
+```json
+{
+	"mcpServers": {
+		"hevy": {
+			"url": "https://mcp.hevy-mcp.dev/mcp",
+			"headers": {
+				"Authorization": "Bearer your-hevy-api-key"
+			}
+		}
+	}
+}
+```
+
+The bearer value is your Hevy API key, not an OAuth token. The Worker validates
+the key with Hevy on each request, does not store it, and forwards it upstream
+only as Hevy's required `api-key` header.
+
+### OAuth for Claude.ai and other remote MCP clients
+
+The hosted production Worker is deployed with an `OAUTH_KV` namespace binding,
+so it exposes a full OAuth 2.1 layer for clients that cannot send a fixed
+header, such as Claude.ai custom connectors. Self-hosted Workers can opt in by
+following the `OAUTH_KV` setup in [CONTRIBUTING.md](./CONTRIBUTING.md):
+
+- RFC 8414 / RFC 9728 discovery metadata under `/.well-known/`
+- Dynamic client registration (`/register`) and PKCE token exchange (`/token`)
+- An `/authorize` page where you paste your Hevy API key once; the key is
+  validated with Hevy and stored encrypted inside the OAuth grant
+
+Add the Worker URL ending in `/mcp` as a Claude.ai custom connector and
+complete the authorization flow in the browser. Direct
+`Authorization: Bearer <hevy-api-key>` requests keep working unchanged — the
+OAuth layer is purely additive — and rotating your Hevy API key invalidates
+every OAuth grant created with it.
+
+OAuth access tokens last seven days and refresh tokens last 30 days. This
+reduces KV writes from frequent hourly refreshes while preserving automatic
+refresh for supported clients.
+
+The endpoint does not expose legacy SSE or a `GET` event stream. Without the
+opt-in OAuth layer, clients that require OAuth discovery, dynamic
+registration, or token refresh are not compatible unless they can send the
+fixed custom header above.
+
+### Self-host the Worker
+
+A clean clone can deploy the portable TypeScript Wrangler configuration with
+`npx wrangler deploy --x-new-config` and receive a `workers.dev` URL. OAuth
+requires your own `OAUTH_KV` namespace; custom domains and routes are
+optional account-owned settings. See
+[CONTRIBUTING.md](./CONTRIBUTING.md#cloudflare-worker-development) for setup and
+for the distinction between self-hosting and the maintainer-only named
+environments.
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) to deploy the Cloudflare Worker for
+self-hosted Streamable HTTP.
+
+## Advanced configuration
+
+| Setting                      | Default        | Scope               | Notes                                                                                                   |
+| ---------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------- |
+| `HEVY_API_KEY`               | None; required | Local stdio or HTTP | Hevy API key from the Hevy app. Never pass it in a URL.                                                 |
+| `HEVY_MCP_API_TIMEOUT`       | `30000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 30 seconds.                      |
+| `HEVY_MCP_DEBUG`             | Disabled       | Local Node          | Set to exactly `1` for privacy-bounded diagnostics on stderr. Stdout remains reserved for MCP JSON-RPC. |
+| `HEVY_MCP_HTTP_BEARER_TOKEN` | None           | Non-loopback HTTP   | Required when `--host` is not loopback; use a separate token, never the Hevy API key.                   |
+| `-h`, `--help`               | N/A            | Local stdio CLI     | Print supported options and exit.                                                                       |
+| `-v`, `--version`            | N/A            | Local stdio CLI     | Print the installed version and exit.                                                                   |
+
+The local Node executable uses stdio by default. Opt into local Streamable
+HTTP with:
+
+```bash
+HEVY_API_KEY=your-hevy-api-key npx hevy-mcp --transport http --host 127.0.0.1 --port 3000
+```
+
+The local MCP endpoint is `http://127.0.0.1:3000/mcp`; non-loopback binds
+require the separate `HEVY_MCP_HTTP_BEARER_TOKEN` environment variable. A
+Docker deployment must publish the port explicitly:
+
+```bash
+docker run --rm -p 3000:3000 -e HEVY_API_KEY -e HEVY_MCP_HTTP_BEARER_TOKEN \\
+  ghcr.io/chrisdoc/hevy-mcp:latest --transport http --host 0.0.0.0 --port 3000
+```
+
+This Node HTTP mode is distinct from the stateless Cloudflare Worker HTTP
+endpoint described above: the Node server owns stateful client sessions, while
+the Worker is designed for hosted deployment and does not import Node code.
+
+### Self-hosted OAuth (`--transport http+oauth`)
+
+`--transport http+oauth` runs the Node server as a password-gated OAuth 2.1
+authorization server **and** an MCP resource server, so a self-hosted instance
+behind a reverse proxy can be added to Claude as a remote Connector. It is a
+fork-specific alternative to the Cloudflare Worker: the Hevy API key stays in
+`HEVY_API_KEY` on the server, and `MCP_AUTH_PASSWORD` is what gates who may
+complete an authorization.
+
+```bash
+MCP_ISSUER_URL=https://mcp.example.com \
+MCP_AUTH_PASSWORD=your-shared-password \
+HEVY_API_KEY=your-hevy-api-key \
+OAUTH_DB_PATH=/data/oauth.db \
+  npx hevy-mcp --transport http+oauth --host 0.0.0.0 --port 8000
+```
+
+| Setting             | Default        | Notes                                                                                      |
+| ------------------- | -------------- | ------------------------------------------------------------------------------------------ |
+| `MCP_ISSUER_URL`    | None; required | Public base URL of this server. Also settable with `--issuer-url=URL`.                     |
+| `MCP_AUTH_PASSWORD` | None           | Password shown on the consent form. **Unset or empty rejects every login** (fails closed). |
+| `OAUTH_DB_PATH`     | `./oauth.db`   | SQLite file holding registered clients and tokens so grants survive restarts.              |
+
+The server implements dynamic client registration (RFC 7591), the authorization
+code flow with **mandatory PKCE (S256)**, refresh-token rotation, token
+revocation (RFC 7009), and RFC 8414 / RFC 9728 discovery documents:
+
+- `GET /.well-known/oauth-authorization-server`
+- `GET /.well-known/oauth-protected-resource/mcp`
+- `POST /register`, `GET /authorize`, `POST /consent`, `POST /token`, `POST /revoke`
+- `ALL /mcp` — requires a `Bearer` access token; unauthenticated requests get
+  `401` with a `WWW-Authenticate` challenge pointing at the metadata document.
+
+`Dockerfile.oauth` and `docker-compose.yml` in the repository root build this
+mode (published on `8012` → container `8000`, with the OAuth database on a named
+volume at `/data`); `deploy/traefik-hevy-mcp.yml` is an example Traefik route.
+
+### Cache behavior
+
+`search-exercise-templates` and `hevy://exercise-templates` share a
+server-scoped in-memory catalog cache:
+
+- Entries live for five minutes, and the cache holds at most one catalog.
+- Concurrent catalog requests share an in-flight fetch when possible.
+- `search-exercise-templates` accepts `refresh: true` to invalidate the cache.
+- Paginated `get-exercise-templates` calls always fetch their requested page.
+- Each hosted Worker request gets a fresh cache, preventing cross-key sharing.
+
+## Security and mutations
+
+- Keep `HEVY_API_KEY` out of source control, URLs, logs, and screenshots.
+- Local clients provide the key through the child process environment.
+- Hosted clients send the key only in the `Authorization: Bearer` header. The
+  Worker validates each key with Hevy, does not store it, and sends it upstream
+  only as Hevy's `api-key` header.
+- Browser requests must come from an exact allowlisted origin. The default
+  allowlist includes Claude.ai, ChatGPT, VS Code for the Web, and github.dev;
+  self-hosted deployments can override it with `MCP_ALLOWED_ORIGINS`.
+- Local development can copy `.dev.vars.example` to `.dev.vars` to disable
+  Origin validation for MCP Inspector. PR preview Workers use the same
+  development-only setting because their browser origins are dynamic. Never
+  set `MCP_DISABLE_ORIGIN_CHECK=true` on a production Worker.
+- Create operations can produce duplicates when retried. Update operations
+  replace existing records. Review tool inputs and use client confirmations.
+
+## Troubleshooting
+
+- **The server does not appear:** restart or reconnect your MCP client after
+  changing its configuration.
+- **`npx` fails:** confirm that Node.js 20 or newer is installed, then run
+  `npx -y hevy-mcp --version` in a terminal.
+- **Codex cannot see the server:** run `codex mcp list`, then start a new Codex
+  session after confirming the `hevy` entry exists.
+- **Hosted authentication fails:** confirm the key is active, belongs to a Hevy
+  PRO account, and is sent as `Authorization: Bearer <HEVY_API_KEY>`.
+- **Local authentication fails:** confirm the key is active and available to the
+  MCP child process as `HEVY_API_KEY`.
+- **Need diagnostics:** set `HEVY_MCP_DEBUG=1`. Diagnostic output goes to stderr
+  and does not interfere with MCP messages on stdout.
+
+If you find a bug or have a feature request, [open an issue](https://github.com/chrisdoc/hevy-mcp/issues).
+
+## Contributing
+
+Contributions are welcome. Developer setup, testing lanes, generated-client
+workflows, Cloudflare Worker deployment, and pull request rules are documented
+in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+## License and acknowledgements
+
+- **License:** [MIT](./LICENSE)
+- **Credits:** [Model Context Protocol](https://github.com/modelcontextprotocol)
+  and [Hevy Fitness](https://www.hevyapp.com/)

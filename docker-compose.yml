@@ -3,12 +3,14 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.oauth
+    restart: unless-stopped
     ports:
       - "8012:8000"
     volumes:
       - oauth-data:/data
     environment:
       - OAUTH_DB_PATH=/data/oauth.db
+    # Supply HEVY_API_KEY, MCP_AUTH_PASSWORD and MCP_ISSUER_URL via .env
     env_file: .env
 
 volumes:

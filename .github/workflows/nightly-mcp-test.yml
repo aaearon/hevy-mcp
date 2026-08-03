@@ -21,91 +21,60 @@ jobs:
       matrix:
         launcher:
           - name: npx
+            id: npx
             command: npx
             args_json: '["-y", "hevy-mcp@latest"]'
+            diagnostics_path: test-results/nightly-npx.json
           - name: bunx
+            id: bunx
             command: bunx
             args_json: '["hevy-mcp@latest"]'
+            diagnostics_path: test-results/nightly-bunx.json
+          - name: source
+            id: source
+            command: node
+            args_json: '["packages/node/dist/cli.mjs"]'
+            diagnostics_path: test-results/nightly-source.json
 
     steps:
       - name: Checkout repository
         id: checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Set up Node.js
         id: setup_node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: ".nvmrc"
-          cache: "npm"
 
-      - name: Set up Python
-        id: setup_python
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
+      - name: Install Node dependencies
+        id: install_npm_deps
+        run: npm ci --no-audit --no-fund
+
+      - name: Build local source
+        if: matrix.launcher.name == 'source'
+        run: npm run build
 
       - name: Set up Bun
         if: matrix.launcher.command == 'bunx'
-        uses: oven-sh/setup-bun@v2
-
-      - name: Install mcp-use
-        id: install_mcp_use
-        run: pip install mcp-use
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
 
       - name: Run MCP integration test
         id: run_mcp_integration_test
-        run: python tests/nightly/test_hevy_mcp.py
+        run: node tests/nightly/test_hevy_mcp.mjs
         env:
           HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
           HEVY_MCP_COMMAND: ${{ matrix.launcher.command }}
           HEVY_MCP_ARGS_JSON: ${{ matrix.launcher.args_json }}
+          HEVY_MCP_LAUNCHER: ${{ matrix.launcher.id }}
+          HEVY_MCP_SOURCE_REVISION: ${{ matrix.launcher.id == 'source' && github.sha || '' }}
+          HEVY_MCP_DIAGNOSTICS_PATH: ${{ matrix.launcher.diagnostics_path }}
 
-      - name: Build failure summary
-        id: failure_summary
-        if: failure()
-        run: |
-          failed_step="Unknown step"
-
-          if [[ "${{ steps.checkout.outcome }}" == "failure" ]]; then
-            failed_step="Checkout repository"
-          elif [[ "${{ steps.setup_node.outcome }}" == "failure" ]]; then
-            failed_step="Set up Node.js"
-          elif [[ "${{ steps.setup_python.outcome }}" == "failure" ]]; then
-            failed_step="Set up Python"
-          elif [[ "${{ steps.install_mcp_use.outcome }}" == "failure" ]]; then
-            failed_step="Install mcp-use"
-          elif [[ "${{ steps.run_mcp_integration_test.outcome }}" == "failure" ]]; then
-            failed_step="Run MCP integration test"
-          fi
-
-          run_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          message="Nightly MCP integration test failed for"
-          message="${message} ${{ github.repository }}@${{ github.ref_name }}."
-          message="${message} Failed step: ${failed_step}."
-          message="${message} Run: ${run_url}"
-
-          {
-            echo "message<<EOF"
-            echo "$message"
-            echo "EOF"
-          } >>"$GITHUB_OUTPUT"
-
-      - name: Send failure webhook notification
-        if: failure() && secrets.NIGHTLY_FAILURE_WEBHOOK_URL != ''
-        env:
-          WEBHOOK_URL: ${{ secrets.NIGHTLY_FAILURE_WEBHOOK_URL }}
-          MESSAGE: ${{ steps.failure_summary.outputs.message }}
-        run: |
-          payload="$(jq -cn --arg msg "$MESSAGE" '{text: $msg, content: $msg}')"
-
-          curl --fail --show-error --silent \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -d "$payload" \
-            "$WEBHOOK_URL"
-
-      - name: Warn when webhook secret is missing
-        if: failure() && secrets.NIGHTLY_FAILURE_WEBHOOK_URL == ''
-        run: |
-          echo "::warning::Nightly MCP integration test failed, but NIGHTLY_FAILURE_WEBHOOK_URL is not set. Unable to send webhook notification."
+      - name: Upload redacted nightly diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: nightly-diagnostics-${{ matrix.launcher.id }}
+          path: ${{ matrix.launcher.diagnostics_path }}
+          if-no-files-found: warn
+          retention-days: 7

@@ -1,4 +1,231 @@
-## [1.25.16](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.15...v1.25.16) (2026-07-02)
+## 3.4.1
+
+### Patch Changes
+
+- [#700](https://github.com/chrisdoc/hevy-mcp/pull/700) [`e2f2610`](https://github.com/chrisdoc/hevy-mcp/commit/e2f261071567be8d5ba009dc1d9df8d128c7a037) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Add privacy-safe MCP telemetry taxonomy, bounded tool outcomes, session compatibility signals, and dashboard guidance.
+
+## 3.4.0
+
+### Minor Changes
+
+- [#692](https://github.com/chrisdoc/hevy-mcp/pull/692) [`6b576ec`](https://github.com/chrisdoc/hevy-mcp/commit/6b576ec10f7e47645475605dd272b7032b11c719) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Improve Sentry MCP tool-failure diagnostics by preserving tool context and grouping failures by their normalized error dimensions.
+
+## 3.3.0
+
+### Minor Changes
+
+- [#682](https://github.com/chrisdoc/hevy-mcp/pull/682) [`c979b6a`](https://github.com/chrisdoc/hevy-mcp/commit/c979b6a1ce7eb11a91d63781828875f0bcde2fb3) Thanks [@planecore](https://github.com/planecore)! - Add an optional OAuth 2.1 layer to the Cloudflare Worker so remote MCP clients such as Claude.ai custom connectors can connect without a fixed Authorization header. When an `OAUTH_KV` namespace is bound, the Worker serves RFC 8414 / RFC 9728 discovery metadata, dynamic client registration, and PKCE token exchange, plus an `/authorize` page that validates the submitted Hevy API key against Hevy and stores it encrypted inside the OAuth grant. Without the binding, Worker behavior is unchanged, and direct Hevy-API-key bearer requests keep working in both modes.
+
+### Patch Changes
+
+- [#683](https://github.com/chrisdoc/hevy-mcp/pull/683) [`90a4577`](https://github.com/chrisdoc/hevy-mcp/commit/90a4577818493cfcbe997fb2ae842ff8a478168f) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Use the OpenTelemetry `user.hash` semantic convention and propagate the user hash to every recorded span.
+
+## 3.2.1
+
+### Patch Changes
+
+- [#681](https://github.com/chrisdoc/hevy-mcp/pull/681) [`9e62d02`](https://github.com/chrisdoc/hevy-mcp/commit/9e62d028d1bc872892a447e1e7cfc9ed7e45ed2c) Thanks [@chrisdoc](https://github.com/chrisdoc)! - promote the hosted Cloudflare MCP endpoint in the README
+
+- [#679](https://github.com/chrisdoc/hevy-mcp/pull/679) [`d232da2`](https://github.com/chrisdoc/hevy-mcp/commit/d232da27da688c225f7cd04fe2ba990831ad5f4c) Thanks [@chrisdoc](https://github.com/chrisdoc)! - update readme
+
+## 3.2.0
+
+### Minor Changes
+
+- [#672](https://github.com/chrisdoc/hevy-mcp/pull/672) [`79a9f84`](https://github.com/chrisdoc/hevy-mcp/commit/79a9f8420f16127f6174b70f9017a3e233e410fb) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Add composite training workflows and compact routine discovery
+
+## 3.1.1
+
+### Patch Changes
+
+- [#649](https://github.com/chrisdoc/hevy-mcp/pull/649) [`b22fe76`](https://github.com/chrisdoc/hevy-mcp/commit/b22fe76d117a694cf412db116f6803cf416596db) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Support runtime-safe Worker HTTP integration configuration and prevent
+  authentication requests from following upstream redirects.
+
+- [#650](https://github.com/chrisdoc/hevy-mcp/pull/650) [`94e785b`](https://github.com/chrisdoc/hevy-mcp/commit/94e785bee096f170c44b3b9f143851577ce4711b) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Fix live Wrangler Worker integration test assertions for routine folder IDs, which are numeric in the Hevy API but were asserted as strings.
+
+## 3.1.0
+
+### Minor Changes
+
+- [#640](https://github.com/chrisdoc/hevy-mcp/pull/640) [`9a85015`](https://github.com/chrisdoc/hevy-mcp/commit/9a850156b1861b5e4dda26afbe59c164fd3fbc22) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add a stateless Cloudflare Worker Streamable HTTP endpoint at `/mcp` with per-request Hevy bearer authentication, exact-origin CORS controls, request-scoped caching, and a Worker-safe native-fetch API client.
+
+### Patch Changes
+
+- [#645](https://github.com/chrisdoc/hevy-mcp/pull/645) [`f2ba282`](https://github.com/chrisdoc/hevy-mcp/commit/f2ba28263d50c2cad571970e9279f53dca346fbb) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Isolate pull request previews on a dedicated Worker that is safely bootstrapped
+  on first use, while keeping production deployments restricted to trusted main
+  branch CI and the custom production domain.
+
+## 3.0.0
+
+### Major Changes
+
+- [#617](https://github.com/chrisdoc/hevy-mcp/pull/617) [`0f03660`](https://github.com/chrisdoc/hevy-mcp/commit/0f03660348a5a83a6d0af313b0df773b4d2781ff) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Deprecated CLI API-key arguments were removed; HEVY_API_KEY is now required.
+
+### Patch Changes
+
+- [#624](https://github.com/chrisdoc/hevy-mcp/pull/624) [`f68b258`](https://github.com/chrisdoc/hevy-mcp/commit/f68b258201033b700759c5b0899a0dc2298ebc8d) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Package the Docker image as a non-root standalone bundle without application `node_modules`.
+
+## 2.0.0
+
+### Major Changes
+
+- [#573](https://github.com/chrisdoc/hevy-mcp/pull/573) [`5660d40`](https://github.com/chrisdoc/hevy-mcp/commit/5660d4009202dc0f0c4d40a3e23ae8915d0668c2) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Change the public `createServer` factory to return a `Promise<McpServer>` so it
+  can validate the configured Hevy API key before constructing a server. Reject
+  confirmed authentication failures with a sanitized error, while warning with
+  allowlisted diagnostics and continuing startup for other validation failures.
+
+### Patch Changes
+
+- [#574](https://github.com/chrisdoc/hevy-mcp/pull/574) [`0a26ed0`](https://github.com/chrisdoc/hevy-mcp/commit/0a26ed09f5fe536870412ece125deb4f07a38d86) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Expose MCP registry metadata through the package `mcpName` field and a synchronized `server.json` manifest.
+
+- [#563](https://github.com/chrisdoc/hevy-mcp/pull/563) [`4c80e87`](https://github.com/chrisdoc/hevy-mcp/commit/4c80e87d8b6cbf82c11cd194d642a33bc1995980) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Provide MCP clients with concise server-level guidance for safe tool selection,
+  recommended workout workflows, pagination, retries, and API-key setup.
+
+- [#569](https://github.com/chrisdoc/hevy-mcp/pull/569) [`209a7d4`](https://github.com/chrisdoc/hevy-mcp/commit/209a7d45535de6da63d8e376bf7f230b0498cab7) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Print the CLI version with the package name to stderr.
+
+- [#567](https://github.com/chrisdoc/hevy-mcp/pull/567) [`23cb9af`](https://github.com/chrisdoc/hevy-mcp/commit/23cb9af1c485afdbe2ce70188059ff3cf54f0b84) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Improve MCP tool descriptions with aliases, use-case guidance, side-effect classification, and operational constraints for more reliable LLM tool selection.
+
+- [#594](https://github.com/chrisdoc/hevy-mcp/pull/594) [`6a5035a`](https://github.com/chrisdoc/hevy-mcp/commit/6a5035a89d134c7f10e60d163baaa2e957acb561) Thanks [@chrisdoc](https://github.com/chrisdoc)! - fix: format workout events to match MCP output schema
+
+- [#575](https://github.com/chrisdoc/hevy-mcp/pull/575) [`fc4dd6f`](https://github.com/chrisdoc/hevy-mcp/commit/fc4dd6f934a0a7581b0d03464961618b154fa1d1) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Report privacy-safe malformed stdin diagnostics while continuing to process later MCP messages.
+
+- [#570](https://github.com/chrisdoc/hevy-mcp/pull/570) [`d4b6872`](https://github.com/chrisdoc/hevy-mcp/commit/d4b6872bb9d0d5d1dd336b2baa14e9f05eaa5f00) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Gracefully close and flush the stdio transport on SIGINT or SIGTERM, with a
+  bounded forced-exit fallback when shutdown stalls or other handles remain open.
+
+- [#562](https://github.com/chrisdoc/hevy-mcp/pull/562) [`e29d5b7`](https://github.com/chrisdoc/hevy-mcp/commit/e29d5b793088788d771c0665986e61463442fd76) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Notify users on stderr about newer major releases or when they are more than
+  two minor versions behind, using package-manager-neutral guidance.
+
+- [#572](https://github.com/chrisdoc/hevy-mcp/pull/572) [`d1f629e`](https://github.com/chrisdoc/hevy-mcp/commit/d1f629ee2b2b5221d259676f453cbfb74242dbf3) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add opt-in, privacy-bounded stderr diagnostics for tool invocations and Hevy API responses.
+
+- [#568](https://github.com/chrisdoc/hevy-mcp/pull/568) [`a509594`](https://github.com/chrisdoc/hevy-mcp/commit/a5095940cdd3c0243a4d86f5ef75c58b3956b2d9) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add an official Docker image and GHCR release packaging for stdio deployments.
+
+- [#592](https://github.com/chrisdoc/hevy-mcp/pull/592) [`b9b6dce`](https://github.com/chrisdoc/hevy-mcp/commit/b9b6dce872c2c2088c9a18dd32ba3c06e49f9c3c) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Associate Hevy API trace spans with the current user when available.
+
+## 1.28.1-beta.1
+
+### Patch Changes
+
+- [#594](https://github.com/chrisdoc/hevy-mcp/pull/594) [`6a5035a`](https://github.com/chrisdoc/hevy-mcp/commit/6a5035a89d134c7f10e60d163baaa2e957acb561) Thanks [@chrisdoc](https://github.com/chrisdoc)! - fix: format workout events to match MCP output schema
+
+## 1.28.1-beta.0
+
+### Patch Changes
+
+- [#574](https://github.com/chrisdoc/hevy-mcp/pull/574) [`0a26ed0`](https://github.com/chrisdoc/hevy-mcp/commit/0a26ed09f5fe536870412ece125deb4f07a38d86) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Expose MCP registry metadata through the package `mcpName` field and a synchronized `server.json` manifest.
+
+- [#563](https://github.com/chrisdoc/hevy-mcp/pull/563) [`4c80e87`](https://github.com/chrisdoc/hevy-mcp/commit/4c80e87d8b6cbf82c11cd194d642a33bc1995980) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Provide MCP clients with concise server-level guidance for safe tool selection,
+  recommended workout workflows, pagination, retries, and API-key setup.
+
+- [#569](https://github.com/chrisdoc/hevy-mcp/pull/569) [`209a7d4`](https://github.com/chrisdoc/hevy-mcp/commit/209a7d45535de6da63d8e376bf7f230b0498cab7) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Print the CLI version with the package name to stderr.
+
+- [#567](https://github.com/chrisdoc/hevy-mcp/pull/567) [`23cb9af`](https://github.com/chrisdoc/hevy-mcp/commit/23cb9af1c485afdbe2ce70188059ff3cf54f0b84) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Improve MCP tool descriptions with aliases, use-case guidance, side-effect classification, and operational constraints for more reliable LLM tool selection.
+
+- [#575](https://github.com/chrisdoc/hevy-mcp/pull/575) [`fc4dd6f`](https://github.com/chrisdoc/hevy-mcp/commit/fc4dd6f934a0a7581b0d03464961618b154fa1d1) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Report privacy-safe malformed stdin diagnostics while continuing to process later MCP messages.
+
+- [#570](https://github.com/chrisdoc/hevy-mcp/pull/570) [`d4b6872`](https://github.com/chrisdoc/hevy-mcp/commit/d4b6872bb9d0d5d1dd336b2baa14e9f05eaa5f00) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Gracefully close and flush the stdio transport on SIGINT or SIGTERM, with a
+  bounded forced-exit fallback when shutdown stalls or other handles remain open.
+
+- [#562](https://github.com/chrisdoc/hevy-mcp/pull/562) [`e29d5b7`](https://github.com/chrisdoc/hevy-mcp/commit/e29d5b793088788d771c0665986e61463442fd76) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Notify users on stderr about newer major releases or when they are more than
+  two minor versions behind, using package-manager-neutral guidance.
+
+- [#572](https://github.com/chrisdoc/hevy-mcp/pull/572) [`d1f629e`](https://github.com/chrisdoc/hevy-mcp/commit/d1f629ee2b2b5221d259676f453cbfb74242dbf3) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add opt-in, privacy-bounded stderr diagnostics for tool invocations and Hevy API responses.
+
+## 1.28.0
+
+### Minor Changes
+
+- [#510](https://github.com/chrisdoc/hevy-mcp/pull/510) [`caf294d`](https://github.com/chrisdoc/hevy-mcp/commit/caf294d8f353a53cffc85d95d9919a56b2cf72f9) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Send structured MCP client logs for Hevy API retries, rate limits, errors, and exercise template catalog refreshes.
+
+- [#508](https://github.com/chrisdoc/hevy-mcp/pull/508) [`b5ffe99`](https://github.com/chrisdoc/hevy-mcp/commit/b5ffe99c098b99f47f183de69b5f33b058ac3e35) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add guided MCP prompts for analyzing workout progress and creating a completed workout from a routine.
+
+## 1.27.0
+
+### Minor Changes
+
+- [#512](https://github.com/chrisdoc/hevy-mcp/pull/512) [`0a592d7`](https://github.com/chrisdoc/hevy-mcp/commit/0a592d7e284c469949f1545b3bf26612d34b0aea) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add validated structured output schemas and `structuredContent` to all read-only tools while preserving their existing text responses.
+
+### Patch Changes
+
+- [#504](https://github.com/chrisdoc/hevy-mcp/pull/504) [`bae0ffb`](https://github.com/chrisdoc/hevy-mcp/commit/bae0ffbf170a7ac5584b29d909268bca36fdde16) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Correct the MCP registration span tool count to reflect successful tool registrations.
+
+- [#509](https://github.com/chrisdoc/hevy-mcp/pull/509) [`fb00d27`](https://github.com/chrisdoc/hevy-mcp/commit/fb00d27cf4709e4d08833eb63d5543783a0053c9) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Expose the user profile, workout count, exercise template catalog, and routine
+  folders as discoverable MCP resources.
+
+## 1.26.6
+
+### Patch Changes
+
+- [#493](https://github.com/chrisdoc/hevy-mcp/pull/493) [`d36658e`](https://github.com/chrisdoc/hevy-mcp/commit/d36658e410b098c4a7f8db97b0b20371d4f7d4d4) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Add enhanced OpenTelemetry and Sentry instrumentation and observability to MCP tool calls, capturing safe whitelisted arguments, response payload metadata (content count and text length), detailed error properties (code, message, type), and grouping execution duration by success/error status.
+
+## 1.26.5
+
+### Patch Changes
+
+- [#491](https://github.com/chrisdoc/hevy-mcp/pull/491) [`2d22bd2`](https://github.com/chrisdoc/hevy-mcp/commit/2d22bd21f1d726777d77efff4163ebb33a2fc947) Thanks [@chrisdoc](https://github.com/chrisdoc)! - change nodejs engine to 20
+
+## 1.26.4
+
+### Patch Changes
+
+- [#488](https://github.com/chrisdoc/hevy-mcp/pull/488) [`161adc7`](https://github.com/chrisdoc/hevy-mcp/commit/161adc704179a0e3a47493d5d3b7f7c46b7c15c9) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Added integration tests covering the workout detail endpoints: `get-workout`, `get-workout-count`, and `get-workout-events`. These tools were not exercised by the existing mocked integration test suite.
+
+## 1.26.3
+
+### Patch Changes
+
+- [#421](https://github.com/chrisdoc/hevy-mcp/pull/421) [`2c1fa0d`](https://github.com/chrisdoc/hevy-mcp/commit/2c1fa0df05341a038c1bdeba062addcadabb5ed2) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Lower the minimum supported Node.js version to 24 (current Active LTS) and
+  update CI to test against Node 24.x and 26.x. Update README quick start and
+  prerequisites to match the supported runtime versions.
+
+## 1.26.2
+
+### Patch Changes
+
+- [#425](https://github.com/chrisdoc/hevy-mcp/pull/425) [`958b037`](https://github.com/chrisdoc/hevy-mcp/commit/958b0373a1bafa91be505689fdbea981a68308c4) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add resilient Hevy API request handling with configurable timeout,
+  bounded retries for transient GET failures, Retry-After support for
+  429 responses, and clearer user-facing rate-limit/transient error
+  messages.
+
+- [#381](https://github.com/chrisdoc/hevy-mcp/pull/381) [`058a163`](https://github.com/chrisdoc/hevy-mcp/commit/058a163502e94385f8a481c5725531eaacd30884) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add `ignoreErrors: ["EPIPE", "broken pipe"]` to the Sentry config so
+  abrupt stdio client disconnects do not generate noisy Sentry events.
+
+## 1.26.1
+
+### Patch Changes
+
+- [#438](https://github.com/chrisdoc/hevy-mcp/pull/438) [`35ab9ea`](https://github.com/chrisdoc/hevy-mcp/commit/35ab9eaa98bbe7ebbaf1b9832ee8d7e183851073) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Align MCP tool response helpers with SDK `CallToolResult` typing by
+  replacing the loose custom response interface, narrowing helper content to
+  SDK `TextContent[]`, and ensuring JSON responses always emit string text.
+
+- [#436](https://github.com/chrisdoc/hevy-mcp/pull/436) [`f1b6018`](https://github.com/chrisdoc/hevy-mcp/commit/f1b601801ab5d8d8c8948d1cc102606781736fc7) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add a shared bounded TTL async cache utility and migrate exercise template
+  catalog caching in `search-exercise-templates` to use it. This keeps cache
+  behavior consistent (TTL, LRU bound, refresh invalidation, and in-flight
+  request de-duplication) and adds tests plus README documentation.
+
+- [#463](https://github.com/chrisdoc/hevy-mcp/pull/463) [`d5df6ca`](https://github.com/chrisdoc/hevy-mcp/commit/d5df6cac5db50fe0dbe6feadb0268e6d434604e5) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Fix commitlint failing on Mergify batch merge commits in the merge queue.
+
+- [#434](https://github.com/chrisdoc/hevy-mcp/pull/434) [`59f95fe`](https://github.com/chrisdoc/hevy-mcp/commit/59f95fe448bcb5cd38f253e62ae69439ece8762b) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Deprecate CLI API key arguments by warning on stderr whenever
+  `--hevy-api-key=...`, `--hevyApiKey=...`, or `hevy-api-key=...` is used.
+  Keep backward compatibility for those flags while documenting `HEVY_API_KEY`
+  as the recommended and secure configuration path.
+
+- [#474](https://github.com/chrisdoc/hevy-mcp/pull/474) [`12cf700`](https://github.com/chrisdoc/hevy-mcp/commit/12cf70079ad52819820509fa7a2e3337e7e6c73a) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Fix missing OTEL_COLLECTOR_TOKEN in the Release workflow build step.
+
+  The Release workflow built the npm package without passing the
+  OTEL_COLLECTOR_TOKEN secret, so the published package had an empty
+  collector token. This caused the OTLP exporter to be skipped at
+  runtime (the `if (collectorToken)` guard in telemetry.ts), meaning
+  no traces or metrics were sent to the OTel Collector.
+
+- [#439](https://github.com/chrisdoc/hevy-mcp/pull/439) [`ca182f6`](https://github.com/chrisdoc/hevy-mcp/commit/ca182f60c6aa0aa24d75f3f5a74559f123d066b9) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add mocked integration coverage with nock and run mocked integrations on every
+  PR while keeping live integrations optional behind `HEVY_API_KEY`.
+
+- [#431](https://github.com/chrisdoc/hevy-mcp/pull/431) [`b6fe3c0`](https://github.com/chrisdoc/hevy-mcp/commit/b6fe3c0749c9297123c05fde10c2640743cbbdd8) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add CLI `--help`/`-h` and `--version`/`-v` flags that print output and
+  exit before server startup, with unit test coverage for flag and default
+  startup behavior.
+
+- [#423](https://github.com/chrisdoc/hevy-mcp/pull/423) [`8dfb593`](https://github.com/chrisdoc/hevy-mcp/commit/8dfb59326202bd0473bfeb3c26c413b6f8475cb4) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Map common Hevy API error statuses to clearer MCP error messages and keep
+  structured debug context with original HTTP details for troubleshooting.
 
 ## 1.26.0
 
@@ -38,6 +265,8 @@
 ### Bug Fixes
 
 - preserve routine supersetId in read responses ([#375](https://github.com/chrisdoc/hevy-mcp/issues/375)) ([9291ace](https://github.com/chrisdoc/hevy-mcp/commit/9291acec0cba10bc79771b7b995de31af919e593))
+
+## [1.25.16](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.15...v1.25.16) (2026-07-02)
 
 ## [1.25.15](https://github.com/chrisdoc/hevy-mcp/compare/v1.25.14...v1.25.15) (2026-06-29)
 

@@ -10,5 +10,9 @@
 	"access": "public",
 	"baseBranch": "main",
 	"updateInternalDependencies": "patch",
-	"ignore": []
+	"ignore": ["@chrisdoc/hevy-cli"],
+	"privatePackages": {
+		"version": true,
+		"tag": false
+	}
 }

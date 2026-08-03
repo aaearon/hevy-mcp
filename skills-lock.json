@@ -1,6 +1,18 @@
 {
 	"version": 1,
 	"skills": {
+		"build-mcp-server": {
+			"source": "anthropics/claude-plugins-official",
+			"sourceType": "github",
+			"skillPath": "plugins/mcp-server-dev/skills/build-mcp-server/SKILL.md",
+			"computedHash": "b98ddf5944e3a1e2bdaad3d6fc3d2afbe29941595817721971cf41d6da81c81e"
+		},
+		"build-mcpb": {
+			"source": "anthropics/claude-plugins-official",
+			"sourceType": "github",
+			"skillPath": "plugins/mcp-server-dev/skills/build-mcpb/SKILL.md",
+			"computedHash": "97eaeeffb27721ffe5fc4ada6e3c15cffbf4121616603cd1b5f3f5da41102a7b"
+		},
 		"code-review": {
 			"source": "mattpocock/skills",
 			"sourceType": "github",
@@ -12,12 +24,6 @@
 			"sourceType": "github",
 			"skillPath": "skills/engineering/improve-codebase-architecture/SKILL.md",
 			"computedHash": "8bf292143ca93b00276a0de0fc5f84f2381f4690c5b0d32e99fa283a072f392f"
-		},
-		"sentry": {
-			"source": "openai/skills",
-			"sourceType": "github",
-			"skillPath": "skills/.curated/sentry/SKILL.md",
-			"computedHash": "ac32ffd194fee6dfc777e8d16b85ea7f9c5975cf4c7488d2616dc3e5dfa07386"
 		},
 		"thermo-nuclear-code-quality-review": {
 			"source": "cursor/plugins",
