@@ -16,12 +16,34 @@ import {
 	respond,
 	routineFoldersResponse,
 	trainingSummaryResponse,
+	unwrapRoutineMutationResponse,
 	workoutResponse,
 	workoutsResponse,
 	type CompactRoutinesResult,
 	type TrainingSummaryResult,
 } from "./response-contracts.js";
 import { getResultTelemetry } from "./result-telemetry.js";
+
+describe("unwrapRoutineMutationResponse", () => {
+	const routine = { id: "r1", title: "Push" } as Routine;
+
+	it("unwraps the wrapped-array, singular-wrapper, and bare shapes", () => {
+		expect(unwrapRoutineMutationResponse({ routine: [routine] })).toEqual(
+			routine,
+		);
+		expect(unwrapRoutineMutationResponse({ routine })).toEqual(routine);
+		expect(unwrapRoutineMutationResponse(routine)).toEqual(routine);
+	});
+
+	it("returns null for empty or garbage bodies", () => {
+		expect(unwrapRoutineMutationResponse(null)).toBeNull();
+		expect(unwrapRoutineMutationResponse(undefined)).toBeNull();
+		expect(unwrapRoutineMutationResponse("not-json")).toBeNull();
+		expect(unwrapRoutineMutationResponse(42)).toBeNull();
+		expect(unwrapRoutineMutationResponse({ routine: [] })).toBeNull();
+		expect(unwrapRoutineMutationResponse({ routine: null })).toBeNull();
+	});
+});
 
 describe("response contracts", () => {
 	it("validates normalized structured output and strips unknown fields", () => {
