@@ -242,6 +242,35 @@ Known environment-dependent operations:
 Treat all other documented checks, including `npm run check:types`, as real
 failures to investigate.
 
+## CI deviations from upstream (fork-specific)
+
+Three CI behaviours differ from `chrisdoc/hevy-mcp` because the fork's history
+and infrastructure differ. Preserve them across upstream merges.
+
+- **Commit-message linting is `--first-parent` only.** Adopting an upstream
+  release merges hundreds of upstream commits, some of which are not
+  Conventional Commits and can never be rewritten here. `Verify commit messages`
+  in `build-and-test.yml` therefore walks `git rev-list --first-parent` and lints
+  each message separately. Coverage given up: a commit reaching the branch only
+  as a merge's second parent is not linted. Commits authored on the branch, and
+  the merge commits themselves, still are — so your own commits get no slack.
+- **Worker preview deploys are gated on `vars.CLOUDFLARE_WORKER_NAME`.** There is
+  no Cloudflare account behind this fork, so both jobs in `deploy-worker.yml`
+  skip instead of failing on a missing `CLOUDFLARE_API_TOKEN`. Set that
+  repository variable and upstream's behaviour returns unchanged. The `secrets`
+  context is unavailable in a job-level `if`, which is why the gate reads a
+  variable rather than the token itself.
+- **CodeQL false positives are triaged as dismissed alerts, not code
+  workarounds.** GitHub code scanning ignores `// codeql[rule-id]` suppression
+  comments, and reshaping a hostname check only swaps
+  `js/regex/missing-regexp-anchor` for
+  `js/incomplete-url-substring-sanitization`. Dismiss the alert with a written
+  justification in the Security tab instead. Note that a large merge defeats
+  CodeQL's diff attribution, so a PR check can report long-standing `main`
+  alerts as "new"; check `?ref=refs/heads/main` before assuming your diff caused
+  them. Avoid churning the flagged lines: editing and reverting them mints fresh
+  alert numbers that must be dismissed again.
+
 ## No Telemetry, No Phone-Home (fork-specific, CRITICAL)
 
 This fork strips all runtime telemetry from upstream `chrisdoc/hevy-mcp`
