@@ -3,6 +3,12 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+	loadTopology,
+	releaseConsumers,
+	workspaceById,
+	workspaceByName,
+} from "./repository-control-plane.mjs";
 
 const execFileAsync = promisify(execFile);
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -10,6 +16,15 @@ const sinceIndex = process.argv.indexOf("--since");
 const since = sinceIndex >= 0 ? process.argv[sinceIndex + 1] : "origin/main";
 
 if (!since) throw new Error("Missing value for --since");
+
+const topology = loadTopology(root);
+const releaseTriggerFiles = new Map(
+	topology.release.triggers.map((trigger) => [
+		trigger.path,
+		workspaceById(topology, trigger.workspace).name,
+	]),
+);
+const releaseBumps = new Set(["patch", "minor", "major"]);
 
 const { stdout } = await execFileAsync(
 	"git",
@@ -78,6 +93,10 @@ for (const path of changedPackagePaths) {
 		changedPackages.set(path, packageName);
 	}
 }
+for (const file of changedFiles) {
+	const packageName = releaseTriggerFiles.get(file);
+	if (packageName) changedPackages.set(file, packageName);
+}
 
 if (changedPackages.size === 0) {
 	console.log("No workspace package changes require a package changeset.");
@@ -110,7 +129,8 @@ const changedChangesetFiles = changesetDiff
 	})
 	.filter((file) => /^\.changeset\/[^/]+\.md$/.test(file));
 
-const changesetPackages = new Set();
+const changesetReleases = new Set();
+const emptyChangesetFiles = [];
 let changedChangesetCount = 0;
 for (const file of changedChangesetFiles) {
 	let contents;
@@ -120,24 +140,38 @@ for (const file of changedChangesetFiles) {
 		continue;
 	}
 	changedChangesetCount += 1;
+	const fileReleases = new Set();
 	const frontmatter = contents.match(/^---\s*\n([\s\S]*?)\n---/);
-	if (!frontmatter) continue;
-	for (const line of frontmatter[1].split("\n")) {
-		const match = line.match(
-			/^\s*(?:"([^"]+)"|'([^']+)'|([@A-Za-z0-9._/-]+))\s*:/,
-		);
-		if (match) changesetPackages.add(match[1] ?? match[2] ?? match[3]);
+	if (frontmatter) {
+		for (const line of frontmatter[1].split("\n")) {
+			const match = line.match(
+				/^\s*(?:"([^"]+)"|'([^']+)'|([@A-Za-z0-9._/-]+))\s*:\s*([A-Za-z]+)\s*$/,
+			);
+			if (!match) continue;
+			const packageName = match[1] ?? match[2] ?? match[3];
+			const bump = match[4];
+			if (!releaseBumps.has(bump)) continue;
+			fileReleases.add(packageName);
+			changesetReleases.add(packageName);
+		}
 	}
+	if (fileReleases.size === 0) emptyChangesetFiles.push(file);
 }
 
 if (changedChangesetCount === 0) {
 	throw new Error(
-		`Changed workspace packages need a changeset added or modified by this branch:\n${[...changedPackages.entries()].map(([path, packageName]) => `- ${path} -> ${packageName}`).join("\n")}`,
+		`Changed workspace packages need a changeset added or modified by this branch:\n${Array.from(changedPackages.entries(), ([path, packageName]) => `- ${path} -> ${packageName}`).join("\n")}`,
+	);
+}
+
+if (emptyChangesetFiles.length > 0) {
+	throw new Error(
+		`Empty Changesets cannot accompany release-triggering changes:\n${emptyChangesetFiles.map((file) => `- ${file}`).join("\n")}\nRelease-triggering changes require non-empty bumps:\n${Array.from(changedPackages.entries(), ([path, packageName]) => `- ${path} -> ${packageName}`).join("\n")}`,
 	);
 }
 
 const missing = [...changedPackages.entries()]
-	.filter(([, packageName]) => !changesetPackages.has(packageName))
+	.filter(([, packageName]) => !changesetReleases.has(packageName))
 	.map(([path, packageName]) => `${path} -> ${packageName}`);
 
 if (missing.length > 0) {
@@ -146,18 +180,57 @@ if (missing.length > 0) {
 	);
 }
 
-const bundledRuntimePackages = new Set([
-	"@hevy-mcp/core",
-	"@hevy-mcp/hevy-client",
-]);
-if (
-	[...bundledRuntimePackages].some((packageName) =>
-		changesetPackages.has(packageName),
-	) &&
-	!changesetPackages.has("hevy-mcp")
-) {
+function getTransitiveConsumers(packageName) {
+	let workspace;
+	try {
+		workspace = workspaceByName(topology, packageName);
+	} catch {
+		return [];
+	}
+	return releaseConsumers(topology, workspace.id).map(
+		(consumer) => workspaceById(topology, consumer).name,
+	);
+}
+
+const cascadeRoots = topology.release.bundles.map(
+	(bundle) => workspaceById(topology, bundle.workspace).name,
+);
+const incompleteCascades = cascadeRoots
+	.filter((packageName) => changesetReleases.has(packageName))
+	.map((packageName) => ({
+		packageName,
+		missing: getTransitiveConsumers(packageName).filter(
+			(consumer) => !changesetReleases.has(consumer),
+		),
+	}))
+	.filter(({ missing }) => missing.length > 0);
+
+if (incompleteCascades.length > 0) {
 	throw new Error(
-		"Changesets releasing @hevy-mcp/core or @hevy-mcp/hevy-client must also release hevy-mcp because those packages are bundled into the public package.",
+		`Bundled release cascades must include every transitive shipped consumer with at least a patch bump:\n${incompleteCascades
+			.map(
+				({ packageName, missing }) =>
+					`- ${packageName} -> missing ${missing.join(", ")}`,
+			)
+			.join("\n")}`,
+	);
+}
+
+const allowedReleases = new Set();
+for (const packageName of changedPackages.values()) {
+	allowedReleases.add(packageName);
+	for (const consumer of getTransitiveConsumers(packageName)) {
+		allowedReleases.add(consumer);
+	}
+}
+const unrelatedReleases = [...changesetReleases].filter(
+	(packageName) => !allowedReleases.has(packageName),
+);
+if (unrelatedReleases.length > 0) {
+	throw new Error(
+		`Changesets must not couple unrelated package releases:\n${unrelatedReleases
+			.map((packageName) => `- ${packageName}`)
+			.join("\n")}`,
 	);
 }
 

@@ -48,7 +48,7 @@ function createMockClient(overrides: Partial<HevyClient> = {}): HevyClient {
 	} as HevyClient;
 }
 
-async function parseMcpResponse(response: Response) {
+async function parseMcpResponse(response: Response): Promise<unknown> {
 	const text = await response.text();
 	if (response.headers.get("content-type")?.includes("text/event-stream")) {
 		const data = text
@@ -56,9 +56,9 @@ async function parseMcpResponse(response: Response) {
 			.find((line) => line.startsWith("data: "))
 			?.slice(6);
 		if (!data) throw new Error(`Missing SSE data: ${text}`);
-		return JSON.parse(data) as Record<string, unknown>;
+		return JSON.parse(data);
 	}
-	return JSON.parse(text) as Record<string, unknown>;
+	return JSON.parse(text);
 }
 
 describe("Worker authentication helpers", () => {
@@ -295,11 +295,32 @@ describe("Cloudflare Worker routes and CORS", () => {
 			const unavailable = createWorkerHandler({
 				createValidationClient: () =>
 					createMockClient({
-						getUserInfo: vi.fn().mockRejectedValue(new TypeError("network")),
+						getUserInfo: vi.fn().mockRejectedValue(
+							new HevyHttpError("HTTP 503", {
+								status: 503,
+								method: "GET",
+								endpoint: "/v1/user/info",
+								phase: "response-headers",
+								operationSafety: "read",
+								commitState: "not_sent",
+								safeToRetry: false,
+								outcome: "terminal_failure",
+							}),
+						),
 					}),
 			});
 			expect((await invalid(mcpRequest({}), {})).status).toBe(401);
-			expect((await unavailable(mcpRequest({}), {})).status).toBe(502);
+			const unavailableResponse = await unavailable(mcpRequest({}), {});
+			expect(unavailableResponse.status).toBe(502);
+			expect(await unavailableResponse.json()).toMatchObject({
+				error: {
+					status: 503,
+					outcome: "terminal_failure",
+					phase: "response-headers",
+					commit_state: "not_sent",
+					safe_to_retry: false,
+				},
+			});
 		},
 	);
 	it("logs safe structured request outcomes", async () => {
@@ -405,7 +426,7 @@ describe("real stateless SDK transport", () => {
 		);
 		const payload = await parseMcpResponse(list);
 		expect(payload).toMatchObject({ id: 2 });
-		expect(JSON.stringify(payload)).toContain("get-user-info");
+		expect(JSON.stringify(payload)).toContain("get-workouts");
 		expect(createValidationClient).toHaveBeenCalledTimes(2);
 		expect(createRequestClient).toHaveBeenCalledTimes(2);
 		expect(createServer).toHaveBeenCalledTimes(2);
@@ -416,6 +437,195 @@ describe("real stateless SDK transport", () => {
 		expect(createTransport.mock.results[0]?.value).not.toBe(
 			createTransport.mock.results[1]?.value,
 		);
+	});
+
+	it("passes the Cloudflare colo, and no user identity, to activity observation", async () => {
+		let observerOptions:
+			| { userHash?: string; cloudflareColo?: string }
+			| undefined;
+		const request = mcpRequest({
+			jsonrpc: "2.0",
+			id: 1,
+			method: "initialize",
+			params: {
+				protocolVersion: "2025-11-25",
+				capabilities: {},
+				clientInfo: { name: "telemetry-context-test", version: "1" },
+			},
+		});
+		Object.defineProperty(request, "cf", { value: { colo: "SFO" } });
+		const handler = createWorkerHandler({
+			createValidationClient: () => createMockClient(),
+			createObserver: (options) => {
+				observerOptions = options;
+				return { start: vi.fn() };
+			},
+		});
+
+		expect((await handler(request, {})).status).toBe(200);
+		// This fork never derives a pseudonymous user identity from the API key.
+		expect(observerOptions).toEqual({ cloudflareColo: "SFO" });
+	});
+
+	it("constructs a fresh observer for every stateless MCP request", async () => {
+		const observers: object[] = [];
+		const createObserver = vi.fn(() => {
+			const observer = { start: vi.fn() };
+			observers.push(observer);
+			return observer;
+		});
+		const createServer = vi.fn(
+			(
+				createClient: CreateHevyMcpServerOptions["createClient"],
+				_signal: AbortSignal | undefined,
+				_deadline: number | undefined,
+				observer: CreateHevyMcpServerOptions["observer"],
+			) => createHevyMcpServer({ createClient, observer }),
+		);
+		const handler = createWorkerHandler({
+			createValidationClient: () => createMockClient(),
+			createRequestClient: () => createMockClient(),
+			createObserver,
+			createServer,
+		});
+		const initialize = {
+			jsonrpc: "2.0",
+			id: 1,
+			method: "initialize",
+			params: {
+				protocolVersion: "2025-11-25",
+				capabilities: {},
+				clientInfo: { name: "fresh-observer-test", version: "1" },
+			},
+		};
+
+		expect((await handler(mcpRequest(initialize), {})).status).toBe(200);
+		expect(
+			(await handler(mcpRequest({ ...initialize, id: 2 }), {})).status,
+		).toBe(200);
+		expect(createObserver).toHaveBeenCalledTimes(2);
+		expect(observers[0]).not.toBe(observers[1]);
+		expect(createServer.mock.calls[0]?.[3]).toBe(observers[0]);
+		expect(createServer.mock.calls[1]?.[3]).toBe(observers[1]);
+	});
+
+	it("shares one absolute deadline across validation and MCP execution", async () => {
+		let validationOptions:
+			| { signal?: AbortSignal; deadline?: number }
+			| undefined;
+		let requestOptions: { signal?: AbortSignal; deadline?: number } | undefined;
+		const validationClient = createMockClient({
+			getUserInfo: vi.fn().mockImplementation((options) => {
+				validationOptions = options;
+				return Promise.resolve({ data: { id: "validated" } });
+			}),
+		});
+		const requestClient = createMockClient({
+			getWorkout: vi.fn().mockImplementation((_workoutId, options) => {
+				requestOptions = options;
+				return Promise.resolve({ id: "workout-1", exercises: [] });
+			}),
+		});
+		const handler = createWorkerHandler({
+			createValidationClient: () => validationClient,
+			createRequestClient: () => requestClient,
+		});
+
+		const result = await handler(
+			mcpRequest({
+				jsonrpc: "2.0",
+				id: 1,
+				method: "tools/call",
+				params: { name: "get-workout", arguments: { workout_id: "workout-1" } },
+			}),
+			{},
+		);
+
+		expect(result.status).toBe(200);
+		expect(validationOptions?.signal).toBeInstanceOf(AbortSignal);
+		await vi.waitFor(() =>
+			expect(requestOptions?.signal).toBeInstanceOf(AbortSignal),
+		);
+		expect(validationOptions?.deadline).toBeLessThan(
+			requestOptions?.deadline ?? Number.POSITIVE_INFINITY,
+		);
+		expect(requestOptions?.deadline).toBeGreaterThan(
+			(validationOptions?.deadline ?? 0) + 5_000 - 100,
+		);
+		expect(validationOptions?.deadline).toBeGreaterThan(Date.now());
+	});
+
+	it("projects a cancelled Worker request as cancellation, not a terminal failure", async () => {
+		const controller = new AbortController();
+		let validationSignal: AbortSignal | undefined;
+		type UserInfoResult = Awaited<ReturnType<HevyClient["getUserInfo"]>>;
+		const validationGetUserInfo = vi.fn(
+			(
+				options?: Parameters<HevyClient["getUserInfo"]>[0],
+			): Promise<UserInfoResult> => {
+				validationSignal = options?.signal;
+				return new Promise((_resolve, reject) => {
+					options?.signal?.addEventListener(
+						"abort",
+						() => reject(new DOMException("request cancelled", "AbortError")),
+						{ once: true },
+					);
+				});
+			},
+		);
+		const validationClient = createMockClient({
+			getUserInfo: validationGetUserInfo,
+		});
+		const handler = createWorkerHandler({
+			createValidationClient: () => validationClient,
+		});
+		const request = new Request("https://worker.example/mcp", {
+			method: "POST",
+			headers: validHeaders,
+			body: JSON.stringify({}),
+			signal: controller.signal,
+		});
+		const pending = handler(request, {});
+		await vi.waitFor(() =>
+			expect(validationGetUserInfo).toHaveBeenCalledOnce(),
+		);
+		expect(validationSignal).toBe(request.signal);
+		controller.abort(new DOMException("request cancelled", "AbortError"));
+		const result = await pending;
+		expect(result.status).toBe(499);
+		expect(await result.json()).toMatchObject({
+			error: {
+				outcome: "cancelled",
+				phase: "before-dispatch",
+				commit_state: "unknown",
+				safe_to_retry: false,
+			},
+		});
+	});
+
+	it("preserves a validation deadline outcome", async () => {
+		const handler = createWorkerHandler({
+			createValidationClient: () =>
+				createMockClient({
+					getUserInfo: vi.fn().mockRejectedValue(
+						new HevyHttpError("deadline", {
+							method: "GET",
+							endpoint: "/v1/user/info",
+							code: "HEVY_DEADLINE_EXCEEDED",
+							phase: "dispatch",
+							operationSafety: "read",
+							commitState: "not_sent",
+							safeToRetry: false,
+							outcome: "deadline_exceeded",
+						}),
+					),
+				}),
+		});
+		const result = await handler(mcpRequest({}), {});
+		expect(result.status).toBe(504);
+		expect(await result.json()).toMatchObject({
+			error: { outcome: "deadline_exceeded", safe_to_retry: false },
+		});
 	});
 
 	it("forwards request-client logs through the connected MCP server", async () => {
@@ -717,21 +927,20 @@ describe("real stateless SDK transport", () => {
 	});
 
 	it("uses a normalized override for authentication and tool requests", async () => {
-		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(
-			async () =>
+		const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(() =>
+			Promise.resolve(
 				new Response(
 					JSON.stringify({
-						data: {
-							id: "override-user",
-							name: "Override User",
-							url: "https://hevy.com/user/override-user",
-						},
+						page: 1,
+						page_count: 1,
+						workouts: [],
 					}),
 					{
 						status: 200,
 						headers: { "content-type": "application/json" },
 					},
 				),
+			),
 		);
 
 		const result = await worker.fetch(
@@ -739,14 +948,14 @@ describe("real stateless SDK transport", () => {
 				jsonrpc: "2.0",
 				id: 8,
 				method: "tools/call",
-				params: { name: "get-user-info", arguments: {} },
+				params: { name: "get-workouts", arguments: { page: 1, page_size: 1 } },
 			}),
 			{ HEVY_API_BASE_URL: "https://fake-hevy.example///" },
 		);
 
 		expect(result.status).toBe(200);
 		expect(JSON.stringify(await parseMcpResponse(result))).toContain(
-			"override-user",
+			"workouts",
 		);
 		expect(fetchSpy).toHaveBeenCalledTimes(2);
 		for (const [input, init] of fetchSpy.mock.calls) {
@@ -757,7 +966,9 @@ describe("real stateless SDK transport", () => {
 						? input.href
 						: input;
 			expect(new URL(requestUrl).origin).toBe("https://fake-hevy.example");
-			expect(new URL(requestUrl).pathname).toBe("/v1/user/info");
+			expect(["/v1/user/info", "/v1/workouts"]).toContain(
+				new URL(requestUrl).pathname,
+			);
 			expect(new Headers(init?.headers).get("api-key")).toBe("test-key");
 		}
 		fetchSpy.mockRestore();

@@ -12,7 +12,7 @@
 [![Hosted on Cloudflare](https://img.shields.io/badge/Hosted_on-Cloudflare-F38020?logo=cloudflare&logoColor=white)](#hosted-cloudflare-endpoint)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 
-[Connect to the hosted MCP](#connect-to-the-hosted-endpoint) · [Watch the 18-second demo](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.mp4) · [Explore all 26 tools](#tools)
+[Connect to the hosted MCP](#connect-to-the-hosted-endpoint) · [Watch the 18-second demo](https://raw.githubusercontent.com/chrisdoc/hevy-mcp/main/docs/assets/hevy-mcp-demo.mp4) · [Explore all 22 tools](#tools)
 
 </div>
 
@@ -104,7 +104,7 @@ so your client does not need Node.js, Bun, Docker, or a local server process.
 Production URL:
 
 ```text
-https://hevy.chrisdoc.dev/mcp
+https://mcp.hevy-mcp.dev/mcp
 ```
 
 The endpoint uses Streamable HTTP. Send your Hevy API key as a bearer token on
@@ -119,7 +119,7 @@ Codex, then add the hosted server:
 ```bash
 export HEVY_API_KEY=your-hevy-api-key
 codex mcp add hevy \
-  --url https://hevy.chrisdoc.dev/mcp \
+  --url https://mcp.hevy-mcp.dev/mcp \
   --bearer-token-env-var HEVY_API_KEY
 ```
 
@@ -135,7 +135,7 @@ Clients that accept a remote MCP URL and fixed headers commonly use this shape:
 {
 	"mcpServers": {
 		"hevy": {
-			"url": "https://hevy.chrisdoc.dev/mcp",
+			"url": "https://mcp.hevy-mcp.dev/mcp",
 			"headers": {
 				"Authorization": "Bearer your-hevy-api-key"
 			}
@@ -214,13 +214,22 @@ server:
 import { createNodeMcpServer, runStdioServer } from "hevy-mcp";
 
 const server = await createNodeMcpServer({ apiKey: process.env.HEVY_API_KEY! });
-// Connect `server` to the transport owned by your application, or use:
+// Connect `server` to the transport owned by your application.
+```
+
+For the CLI-owned stdio process, use the executable instead of creating an
+embedded server:
+
+```ts
+import { runStdioServer } from "hevy-mcp";
+
 await runStdioServer();
 ```
 
-`createNodeMcpServer` never reads environment variables, connects a transport,
-or installs process lifecycle handlers. The CLI-only `runStdioServer` function
-owns those concerns.
+`createNodeMcpServer` is the side-effect-free embedding entry: it validates the
+supplied key locally, but never reads environment variables, probes Hevy,
+connects a transport, or installs process lifecycle
+handlers. The CLI-only `runStdioServer` function owns those concerns.
 
 <details>
 <summary><strong>Use bunx instead</strong></summary>
@@ -331,7 +340,7 @@ These server-provided MCP prompts coordinate common multi-step workflows:
 
 ## Tools
 
-`hevy-mcp` registers 26 tools. Read-only tools are safe for exploration; create
+`hevy-mcp` registers 22 tools. Read-only tools are safe for exploration; create
 and update tools are exposed with MCP mutation annotations so compatible clients
 can request confirmation.
 
@@ -340,7 +349,6 @@ can request confirmation.
 | Training analysis  | `get-training-summary`      | Summarize 1-12 weeks of workout activity and body-measurement trends in one call. |
 | Workouts           | `get-workouts`              | List workouts from newest to oldest with exercise and timing details.             |
 | Workouts           | `get-workout`               | Get complete details for one workout by ID.                                       |
-| Workouts           | `get-workout-count`         | Return the account's total workout count.                                         |
 | Workouts           | `get-workout-events`        | List workout update and delete events since a timestamp.                          |
 | Workouts           | `create-workout`            | Create a completed workout in Hevy.                                               |
 | Workouts           | `update-workout`            | Patch workout metadata by ID; omitted fields and all exercises remain unchanged.  |
@@ -350,10 +358,8 @@ can request confirmation.
 | Routines           | `get-routine`               | Get one routine and its exercise configuration by ID.                             |
 | Routines           | `create-routine`            | Create a reusable workout routine.                                                |
 | Routines           | `update-routine`            | Replace an existing routine's content.                                            |
-| Routine folders    | `get-routine-folders`       | List default and custom routine folders.                                          |
 | Routine folders    | `get-routine-folder`        | Get one routine folder's metadata by ID.                                          |
 | Routine folders    | `create-routine-folder`     | Create a routine folder.                                                          |
-| Exercise templates | `get-exercise-templates`    | List exercise templates with equipment and muscle metadata.                       |
 | Exercise templates | `get-exercise-template`     | Get complete metadata for one exercise template by ID.                            |
 | Exercise templates | `search-exercise-templates` | Search the full exercise catalog by title substring.                              |
 | Exercise templates | `create-exercise-template`  | Create a custom exercise template.                                                |
@@ -362,7 +368,6 @@ can request confirmation.
 | Body measurements  | `get-body-measurement`      | Get the body measurement entry for one date.                                      |
 | Body measurements  | `create-body-measurement`   | Create a dated body measurement.                                                  |
 | Body measurements  | `update-body-measurement`   | Update the body measurement for an existing date.                                 |
-| Account            | `get-user-info`             | Return the user's ID, display name, and public profile URL.                       |
 
 The Hevy API currently exposes no delete endpoints for workouts, routines,
 routine folders, exercise templates, or body measurements, so there are no
@@ -382,11 +387,11 @@ corresponding delete tools.
 The production MCP server is live at:
 
 ```text
-https://hevy.chrisdoc.dev/mcp
+https://mcp.hevy-mcp.dev/mcp
 ```
 
 It is the quickest way to use `hevy-mcp`: there is nothing to install or keep
-running locally, and it exposes the same 26 tools as the npm package and Docker
+running locally, and it exposes the same 22 tools as the npm package and Docker
 image.
 
 The Cloudflare Worker uses stateless **Streamable HTTP** at `POST /mcp`.
@@ -396,7 +401,7 @@ Clients must send their Hevy API key as a fixed authorization header:
 {
 	"mcpServers": {
 		"hevy": {
-			"url": "https://hevy.chrisdoc.dev/mcp",
+			"url": "https://mcp.hevy-mcp.dev/mcp",
 			"headers": {
 				"Authorization": "Bearer your-hevy-api-key"
 			}
@@ -439,14 +444,18 @@ self-hosted Streamable HTTP.
 
 ## Advanced configuration
 
-| Setting                      | Default        | Scope               | Notes                                                                                                   |
-| ---------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------- |
-| `HEVY_API_KEY`               | None; required | Local stdio or HTTP | Hevy API key from the Hevy app. Never pass it in a URL.                                                 |
-| `HEVY_MCP_API_TIMEOUT`       | `30000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 30 seconds.                      |
-| `HEVY_MCP_DEBUG`             | Disabled       | Local Node          | Set to exactly `1` for privacy-bounded diagnostics on stderr. Stdout remains reserved for MCP JSON-RPC. |
-| `HEVY_MCP_HTTP_BEARER_TOKEN` | None           | Non-loopback HTTP   | Required when `--host` is not loopback; use a separate token, never the Hevy API key.                   |
-| `-h`, `--help`               | N/A            | Local stdio CLI     | Print supported options and exit.                                                                       |
-| `-v`, `--version`            | N/A            | Local stdio CLI     | Print the installed version and exit.                                                                   |
+| Setting                          | Default        | Scope               | Notes                                                                                                                                                                                                              |
+| -------------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `HEVY_API_KEY`                   | None; required | Local stdio or HTTP | Hevy API key from the Hevy app. Never pass it in a URL.                                                                                                                                                            |
+| `HEVY_MCP_API_TIMEOUT`           | `30000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 30 seconds.                                                                                                                                 |
+| `HEVY_MCP_DEBUG`                 | Disabled       | Local Node          | Set to exactly `1` for privacy-bounded diagnostics on stderr. Stdout remains reserved for MCP JSON-RPC.                                                                                                            |
+| `HEVY_MCP_HTTP_BEARER_TOKEN`     | None           | Non-loopback HTTP   | Required when `--host` is not loopback; use a separate token, never the Hevy API key.                                                                                                                              |
+| `HEVY_MCP_HTTP_MAX_SESSIONS`     | `100`          | Local HTTP          | Maximum established sessions (including sessions currently initializing); excess requests receive `429` and DELETE, disconnect, or idle eviction frees capacity. Invalid values use the default; capped at 10,000. |
+| `HEVY_MCP_HTTP_MAX_INITIALIZING` | `10`           | Local HTTP          | Maximum concurrent session initializations; excess requests receive `503` and are not queued. Invalid values use the default; capped at 1,000.                                                                     |
+| `HEVY_MCP_HTTP_IDLE_TIMEOUT_MS`  | `1800000` ms   | Local HTTP          | Idle established sessions are evicted after 30 minutes; each session request resets the timer. Invalid values use the default; capped at 24 hours.                                                                 |
+| `HEVY_MCP_HTTP_BODY_TIMEOUT_MS`  | `30000` ms     | Local HTTP          | Application deadline for reading a request body. Stalled bodies receive `408`; invalid values use the default; capped at 5 minutes.                                                                                |
+| `-h`, `--help`                   | N/A            | Local stdio CLI     | Print supported options and exit.                                                                                                                                                                                  |
+| `-v`, `--version`                | N/A            | Local stdio CLI     | Print the installed version and exit.                                                                                                                                                                              |
 
 The local executable uses stdio by default. To opt into Streamable HTTP, run:
 
@@ -478,7 +487,6 @@ server-scoped in-memory catalog cache:
 - Entries live for five minutes, and the cache holds at most one catalog.
 - Concurrent catalog requests share an in-flight fetch when possible.
 - `search-exercise-templates` accepts `refresh: true` to invalidate the cache.
-- Paginated `get-exercise-templates` calls always fetch their requested page.
 - Each hosted Worker request gets a fresh cache, preventing cross-key sharing.
 
 ## Security and mutations

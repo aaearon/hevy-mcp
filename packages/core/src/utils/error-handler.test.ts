@@ -202,7 +202,7 @@ describe("createErrorResponse", () => {
 	});
 
 	it("does not expose non-Error thrown values in client responses", () => {
-		const cyclic: Record<string, unknown> = {};
+		const cyclic: { self?: object } = {};
 		cyclic.self = cyclic;
 		const cases: unknown[] = [
 			"Bearer secret-string",
@@ -233,16 +233,14 @@ describe("createErrorResponse", () => {
 describe("withErrorHandling", () => {
 	it("returns successful values unchanged", async () => {
 		const expected = { content: [{ type: "text" as const, text: "ok" }] };
-		const wrapped = withErrorHandling(async () => expected, "test");
+		const wrapped = withErrorHandling(() => Promise.resolve(expected), "test");
 		await expect(wrapped({})).resolves.toBe(expected);
 	});
 
 	it("normalizes nullish arguments and reports original failures", async () => {
 		const onError = vi.fn();
 		const wrapped = withErrorHandling(
-			async () => {
-				throw new Error("failed");
-			},
+			() => Promise.reject(new Error("failed")),
 			"test",
 			onError,
 		);
@@ -254,9 +252,7 @@ describe("withErrorHandling", () => {
 	it("does not replace normalized responses when observers fail", async () => {
 		const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const wrapped = withErrorHandling(
-			async () => {
-				throw new Error("original failure");
-			},
+			() => Promise.reject(new Error("original failure")),
 			"test",
 			() => {
 				throw new Error("observer secret");

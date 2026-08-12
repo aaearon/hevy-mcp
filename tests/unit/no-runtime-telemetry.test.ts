@@ -24,7 +24,14 @@ function collectFiles(dir: string, extensions: string[]): string[] {
 // reintroduction in `core`, `worker`, `hevy-client` or `cli` is caught too.
 // `scripts/` is deliberately excluded: the package-boundary guards there name
 // `@sentry/` and `@opentelemetry/` as forbidden strings by design.
-const PACKAGE_NAMES = ["cli", "core", "hevy-client", "node", "worker"];
+const PACKAGE_NAMES = [
+	"cli",
+	"core",
+	"hevy-client",
+	"node",
+	"operations",
+	"worker",
+];
 
 const SOURCE_FILES = PACKAGE_NAMES.flatMap((name) =>
 	collectFiles(join(REPO_ROOT, "packages", name, "src"), [".ts"]),
@@ -39,11 +46,23 @@ describe("shipped server carries no runtime telemetry", () => {
 		expect(SOURCE_FILES.length).toBeGreaterThan(10);
 	});
 
-	it("imports no @sentry/* or @opentelemetry/* package", () => {
+	// Covers `from "@sentry/node"`, bare side-effect `import "@sentry/node"`,
+	// dynamic `import("@sentry/node")`, and `require("@sentry/node")` /
+	// `createRequire(...)("@sentry/node")`. The repo already uses
+	// `createRequire` for `better-sqlite3`, so that pattern is live here.
+	it("references no @sentry/* or @opentelemetry/* package", () => {
 		const offenders = SOURCE_FILES.filter((file) =>
-			/from\s+["'](@sentry\/|@opentelemetry\/)/.test(
+			/(?:from|import|require)\s*\(?\s*["'`](@sentry\/|@opentelemetry\/)/.test(
 				readFileSync(file, "utf8"),
 			),
+		);
+
+		expect(offenders).toEqual([]);
+	});
+
+	it("names no telemetry SDK anywhere in workspace sources", () => {
+		const offenders = SOURCE_FILES.filter((file) =>
+			/@sentry\/|@opentelemetry\//.test(readFileSync(file, "utf8")),
 		);
 
 		expect(offenders).toEqual([]);
@@ -98,6 +117,19 @@ describe("shipped server phones home to nothing but the Hevy API", () => {
 	it("contacts no npm registry", () => {
 		const offenders = SOURCE_FILES.filter((file) =>
 			/registry\.npmjs\.org/i.test(readFileSync(file, "utf8")),
+		);
+
+		expect(offenders).toEqual([]);
+	});
+
+	// The Worker observer keeps an inert `userHash` option so upstream merges
+	// stay cheap, but nothing in this fork derives that value from the caller's
+	// Hevy API key. Guard the derivation, not the seam.
+	it("derives no pseudonymous user identity from the API key", () => {
+		const offenders = SOURCE_FILES.filter((file) =>
+			/\b(createWorkerUserHash|createUserHash|hmac)/i.test(
+				readFileSync(file, "utf8"),
+			),
 		);
 
 		expect(offenders).toEqual([]);

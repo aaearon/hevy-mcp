@@ -1,12 +1,13 @@
 name: Release
 
 on:
-  workflow_run:
+  # This privileged follow-up is gated to a successful push to main from this
+  # repository, so it only checks out a trusted commit already tested by CI.
+  workflow_run: # zizmor: ignore[dangerous-triggers]
     workflows: ["Build and Test"]
     types: [completed]
     branches: [main]
-permissions:
-  contents: write # needed to create releases/tags
+permissions: {}
 
 env:
   ROLLUP_SKIP_NODEJS_NATIVE_BUILD: "true"
@@ -17,7 +18,8 @@ jobs:
     if: >-
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'main'
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
     permissions:
       contents: write # to be able to publish a GitHub release
@@ -27,6 +29,8 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.version }}
       released: ${{ steps.release.outputs.released }}
+      node_released: ${{ steps.release.outputs.node_released }}
+      worker_version: ${{ steps.release.outputs.worker_version }}
       worker_released: ${{ steps.release.outputs.worker_released }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -38,19 +42,26 @@ jobs:
         with:
           node-version-file: ".nvmrc"
           cache: "npm"
+      - name: Set up mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
       - run: npm ci
-      - run: npm run build
-      - name: Run unit tests
-        run: npx vitest run --exclude 'tests/integration/**'
-      - name: Verify published package
-        run: npm run test:pack
+      - name: Build release package
+        run: npx nx run repository:build
+      - name: Prepare shared package candidates
+        run: |
+          npx nx run @chrisdoc/hevy-cli:build
+          npx nx run repository:check:server-manifest
+          npx nx run repository:pack:artifacts --excludeTaskDependencies
+      - name: Validate release candidates
+        run: >-
+          npx nx run-many --projects=repository --targets=test:release-unit,test:worker,test:pack,test:cli,test:pack:cli,check:publint --parallel=3 --outputStyle=stream --excludeTaskDependencies
       - name: Run integration tests
-        run: npx vitest run tests/integration
+        run: npx nx run repository:test:integration
         env:
           HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
 
       - name: Test source MCP build
-        run: node tests/nightly/test_hevy_mcp.mjs
+        run: npx nx run repository:test:nightly
         env:
           HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
           HEVY_MCP_COMMAND: node
@@ -60,50 +71,38 @@ jobs:
           HEVY_MCP_DIAGNOSTICS_PATH: test-results/release-source.json
 
       - name: Smoke test live local Worker HTTP path
-        continue-on-error: true
-        run: npm run test:worker-http:live
+        run: npx nx run repository:test:worker-http:live
         env:
           HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
           HEVY_RUN_LIVE_WORKER_TESTS: "1"
 
       - name: Create Release PR or Publish
         id: changesets
-        uses: changesets/action@a45c4d594aa4e2c509dc14a9f2b3b67ba3780d0d # v1.9.0
+        uses: changesets/action@2d9f7af6402422be60d377f151c7618011bba45a # v2.0.0-next.4
         with:
-          version: npm run version:changesets
-          publish: npm run release
-          commit: "chore: version packages"
-          title: "chore: version packages"
+          version-script: npx nx run repository:version:changesets
+          publish-script: npx nx run repository:release
+          commit-message: "chore: version packages"
+          pr-title: "chore: version packages"
+          github-token: ${{ secrets.GITHUB_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Set Release Outputs
         id: release
+        env:
+          PKGS: ${{ steps.changesets.outputs['published-packages'] }}
+          PUBLISHED: ${{ steps.changesets.outputs.published }}
+          RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
         run: |
           set -euo pipefail
-          worker_released=false
-          if ! git diff --quiet \
-            "${{ github.event.workflow_run.head_sha || github.sha }}^1" \
-            "${{ github.event.workflow_run.head_sha || github.sha }}" \
-            -- packages/worker/package.json; then
-            worker_released=true
-          fi
-
-          if [ "${{ steps.changesets.outputs.published }}" = "true" ]; then
-            VERSION=$(node -p 'const pkgs = JSON.parse(process.env.PKGS); pkgs.find((pkg) => pkg.name === "hevy-mcp")?.version || ""')
-            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-            echo "released=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "version=" >> "$GITHUB_OUTPUT"
-            echo "released=false" >> "$GITHUB_OUTPUT"
-          fi
-          echo "worker_released=$worker_released" >> "$GITHUB_OUTPUT"
-        env:
-          PKGS: ${{ steps.changesets.outputs.publishedPackages }}
+          node scripts/release-outputs.mjs \
+            "$RELEASE_COMMIT^1" \
+            "$RELEASE_COMMIT" >> "$GITHUB_OUTPUT"
 
   publish-container:
     name: Publish Docker image
     needs: release
-    if: needs.release.outputs.released == 'true'
+    if: needs.release.outputs.node_released == 'true'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -122,7 +121,7 @@ jobs:
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@abd2ef45e78c5afb21d64d4ca52ee8550d9572c7 # v4.5.1
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -155,12 +154,13 @@ jobs:
     if: >-
       github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.head_branch == 'main' &&
-      (needs.release.outputs.released == 'true' ||
-      needs.release.outputs.worker_released == 'true')
+      needs.release.outputs.worker_released == 'true'
     runs-on: ubuntu-latest
     concurrency:
       group: cloudflare-worker-production
       cancel-in-progress: false
+    permissions:
+      contents: read
     environment:
       name: production
       url: https://hevy.chrisdoc.dev/mcp
@@ -188,8 +188,106 @@ jobs:
           CLOUDFLARE_WORKER_NAME: ${{ vars.CLOUDFLARE_WORKER_NAME }}
           CLOUDFLARE_WORKER_ROUTE: ${{ vars.CLOUDFLARE_WORKER_ROUTE }}
           CLOUDFLARE_OAUTH_KV_NAMESPACE_ID: ${{ secrets.CLOUDFLARE_OAUTH_KV_NAMESPACE_ID }}
+          RELEASE_COMMIT: ${{ github.event.workflow_run.head_sha || github.sha }}
+          WORKER_VERSION: ${{ needs.release.outputs.worker_version }}
         run: >-
           npx wrangler deploy
           --x-new-config
           --env production
-          --message "Changesets release at ${{ github.event.workflow_run.head_sha || github.sha }}"
+          --tag "$WORKER_VERSION"
+          --message "Changesets release at $RELEASE_COMMIT"
+
+  publish-preview:
+    name: Publish hevy-mcp preview
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    concurrency:
+      group: npm-preview-main
+      cancel-in-progress: true
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout tested commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Verify tested commit is current main
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          checked_out_sha="$(git rev-parse HEAD)"
+          current_main_sha="$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')"
+          if [ -z "$current_main_sha" ]; then
+            echo "Unable to determine the current origin/main SHA"
+            exit 1
+          fi
+          if [ "$checked_out_sha" != "$TESTED_SHA" ] || [ "$current_main_sha" != "$TESTED_SHA" ]; then
+            echo "Refusing to publish stale tested commit"
+            echo "tested: $TESTED_SHA"
+            echo "checked out: $checked_out_sha"
+            echo "current main: $current_main_sha"
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+          cache: "npm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Set up mise
+        uses: jdx/mise-action@7e36c90d9ab29c415a2384db3006f3ec8a8cc654 # v4.2.4
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Set transient preview version
+        env:
+          PREVIEW_ID: ${{ github.run_id }}
+          PREVIEW_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from "node:fs";
+
+          const path = "packages/node/package.json";
+          const packageJson = JSON.parse(readFileSync(path, "utf8"));
+          const baseVersion = packageJson.version.split("-")[0];
+          packageJson.version = `${baseVersion}-main.${process.env.PREVIEW_ID}.${process.env.PREVIEW_ATTEMPT}`;
+          writeFileSync(path, `${JSON.stringify(packageJson, null, "\t")}\n`);
+          NODE
+          npx nx run repository:sync:server-manifest
+
+      - name: Verify package
+        run: npx nx run repository:test:pack
+
+      - name: Publish preview
+        env:
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          current_main_sha="$(git ls-remote origin refs/heads/main | awk 'NR == 1 { print $1 }')"
+          if [ "$current_main_sha" != "$TESTED_SHA" ]; then
+            echo "Refusing to publish stale tested commit"
+            echo "tested: $TESTED_SHA"
+            echo "current main: $current_main_sha"
+            exit 1
+          fi
+          VERSION=$(node -p 'JSON.parse(require("node:fs").readFileSync("packages/node/package.json", "utf8")).version')
+          case "$VERSION" in
+            *-main.*) ;;
+            *)
+              echo "Refusing to publish non-preview version: $VERSION"
+              exit 1
+              ;;
+          esac
+          echo "Publishing hevy-mcp@$VERSION with the preview dist-tag"
+          npm publish --workspace=hevy-mcp --tag preview

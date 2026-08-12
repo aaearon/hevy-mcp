@@ -1,15 +1,32 @@
 /* oxlint-disable typescript/unbound-method */
 import type { McpServer } from "@modelcontextprotocol/server";
 import type { HevyClient } from "@hevy-mcp/hevy-client";
+import {
+	routinesGetDescriptor,
+	routinesListDescriptor,
+	type HevyOperations,
+	workoutsGetDescriptor,
+	workoutsListDescriptor,
+} from "@hevy-mcp/operations";
+import type { ToolExecutionContext } from "../execution.js";
 import { describe, expect, it, vi } from "vitest";
 import { createToolRuntime } from "./tool-runtime.js";
 import { registerToolDefinition } from "./define-tool.js";
 import { workoutToolDefinitions } from "./workouts.js";
 
-function register(client: HevyClient | null) {
+function register(
+	client: HevyClient | null,
+	operations?: HevyOperations,
+	execution?: ToolExecutionContext,
+) {
 	const tool = vi.fn();
 	const server = { tool, registerTool: tool } as unknown as McpServer;
-	const runtime = createToolRuntime({ client, catalog: {} as never });
+	const runtime = createToolRuntime({
+		client,
+		operations,
+		execution,
+		catalog: {} as never,
+	});
 	for (const definition of workoutToolDefinitions) {
 		registerToolDefinition(server, runtime, definition);
 	}
@@ -21,9 +38,7 @@ function toolHandler(tool: ReturnType<typeof vi.fn>, name: string) {
 		([registeredName]) => registeredName === name,
 	);
 	if (!call) throw new Error(`Tool ${name} was not registered`);
-	return call.at(-1) as (
-		args: Record<string, unknown>,
-	) => Promise<Record<string, unknown>>;
+	return call.at(-1) as (args: object) => Promise<object>;
 }
 
 const workoutInput = {
@@ -64,7 +79,6 @@ describe("workout tools", () => {
 			getWorkoutEvents: vi
 				.fn()
 				.mockResolvedValue({ events: [], page_count: 1 }),
-			getWorkoutCount: vi.fn().mockResolvedValue({ workout_count: 4 }),
 		} as unknown as HevyClient;
 		const tool = register(client);
 
@@ -74,9 +88,7 @@ describe("workout tools", () => {
 			tool,
 			"get-workout-events",
 		)({ page: 1, page_size: 5, since: "2025-01-01T00:00:00Z" });
-		expect(await toolHandler(tool, "get-workout-count")({})).toMatchObject({
-			structuredContent: { workout_count: 4 },
-		});
+
 		expect(client.getWorkouts).toHaveBeenCalledWith({ page: 2, pageSize: 5 });
 		expect(client.getWorkout).toHaveBeenCalledWith("w1");
 		expect(client.getWorkoutEvents).toHaveBeenCalledWith({
@@ -84,6 +96,60 @@ describe("workout tools", () => {
 			pageSize: 5,
 			since: "2025-01-01T00:00:00Z",
 		});
+	});
+
+	it("uses the injected workout get operation and execution context", async () => {
+		const workoutsGetExecute = vi.fn().mockResolvedValue({
+			workout: { id: "w1", title: "Push" },
+		});
+		const workoutsListExecute = vi.fn();
+		const routinesGetExecute = vi.fn();
+		const routinesListExecute = vi.fn();
+		const operations: HevyOperations = {
+			workouts: {
+				get: {
+					descriptor: workoutsGetDescriptor,
+					execute: workoutsGetExecute,
+				},
+				list: {
+					descriptor: workoutsListDescriptor,
+					execute: workoutsListExecute,
+				},
+			},
+			routines: {
+				get: {
+					descriptor: routinesGetDescriptor,
+					execute: routinesGetExecute,
+				},
+				list: {
+					descriptor: routinesListDescriptor,
+					execute: routinesListExecute,
+				},
+			},
+		};
+		const execution: ToolExecutionContext = {
+			signal: new AbortController().signal,
+			deadline: Date.now() + 5_000,
+		};
+		const tool = register(null, operations, execution);
+
+		const response = await toolHandler(
+			tool,
+			"get-workout",
+		)({
+			workout_id: "w1",
+		});
+
+		expect(workoutsGetExecute).toHaveBeenCalledWith(
+			{ workoutId: "w1" },
+			execution,
+		);
+		expect(response).toMatchObject({
+			structuredContent: {
+				workout: { id: "w1", title: "Push" },
+			},
+		});
+		expect(response).toMatchObject({ content: [{ type: "text" }] });
 	});
 
 	it("gets before patching metadata and sends the exact built payload", async () => {
@@ -119,13 +185,13 @@ describe("workout tools", () => {
 			createWorkout: vi
 				.fn()
 				.mockResolvedValue({ id: "w1", ...workoutInput.workout }),
-			getWorkout: vi.fn().mockImplementation(async () => {
+			getWorkout: vi.fn().mockImplementation(() => {
 				calls.push("get");
-				return current;
+				return Promise.resolve(current);
 			}),
-			updateWorkout: vi.fn().mockImplementation(async () => {
+			updateWorkout: vi.fn().mockImplementation(() => {
 				calls.push("put");
-				return current;
+				return Promise.resolve(current);
 			}),
 		} as unknown as HevyClient;
 		const tool = register(client);

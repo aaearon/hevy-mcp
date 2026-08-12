@@ -1,9 +1,6 @@
 import { z } from "zod";
 import type {
-	GetV1Workouts200,
-	GetV1WorkoutsCount200,
 	GetV1WorkoutsEvents200,
-	GetV1WorkoutsWorkoutid200,
 	PostV1Workouts201,
 	PutV1WorkoutsWorkoutid200,
 } from "@hevy-mcp/hevy-client/types";
@@ -19,7 +16,6 @@ import type { ToolRuntime } from "./tool-runtime.js";
 import {
 	createWorkoutResponse,
 	updateWorkoutResponse,
-	workoutCountResponse,
 	workoutEventsResponse,
 	workoutResponse,
 	workoutsResponse,
@@ -32,10 +28,7 @@ import {
 
 import type { InferToolParams } from "../utils/tool-helpers.js";
 import { buildWorkoutUpdatePayload } from "./mutation-semantics.js";
-import {
-	isExpectedListPageNotFound,
-	isExpectedReadNotFound,
-} from "../utils/hevy-error-policy.js";
+import { isExpectedListPageNotFound } from "../utils/hevy-error-policy.js";
 
 const getWorkoutsSchema = paginationShape({
 	defaultPageSize: 5,
@@ -77,26 +70,14 @@ export const workoutToolDefinitions = [
 		kind: "read" as const,
 		responseContract: workoutsResponse,
 		execute: async (runtime: ToolRuntime, args: GetWorkoutsParams) => {
-			try {
-				const data: GetV1Workouts200 = await runtime.getClient().getWorkouts({
+			const data = await runtime.getOperations().workouts.list.execute(
+				{
 					page: args.page,
 					pageSize: args.page_size,
-				});
-				return {
-					items: data?.workouts ?? [],
-					page: args.page,
-					pageCount: data?.page_count,
-				};
-			} catch (error) {
-				if (isExpectedListPageNotFound(error, args.page)) {
-					return {
-						items: [],
-						page: args.page,
-						expected404Outcome: "end_of_list",
-					};
-				}
-				throw error;
-			}
+				},
+				runtime.execution,
+			);
+			return data;
 		},
 	},
 	{
@@ -111,39 +92,13 @@ export const workoutToolDefinitions = [
 		kind: "read" as const,
 		responseContract: workoutResponse,
 		execute: async (runtime: ToolRuntime, args: GetWorkoutParams) => {
-			try {
-				const data: GetV1WorkoutsWorkoutid200 = await runtime
-					.getClient()
-					.getWorkout(args.workout_id);
-				return { workout: data, workout_id: args.workout_id };
-			} catch (error) {
-				if (isExpectedReadNotFound(error)) {
-					return {
-						workout: null,
-						workout_id: args.workout_id,
-						expected404Outcome: "not_found",
-					};
-				}
-				throw error;
-			}
-		},
-	},
-	{
-		name: "get-workout-count",
-		feature: "workouts" as const,
-		operation: "count" as const,
-		description:
-			"Read-only. Returns the total workout count; it does not return records or accept date filters.",
-		inputSchema: {},
-		outputSchema: workoutCountResponse.outputSchema,
-		annotations: readOnlyAnnotations("Get Workout Count"),
-		kind: "read" as const,
-		responseContract: workoutCountResponse,
-		execute: async (runtime: ToolRuntime) => {
-			const data: GetV1WorkoutsCount200 = await runtime
-				.getClient()
-				.getWorkoutCount();
-			return data?.workout_count ?? 0;
+			const data = await runtime
+				.getOperations()
+				.workouts.get.execute(
+					{ workoutId: args.workout_id },
+					runtime.execution,
+				);
+			return { ...data, workout_id: args.workout_id };
 		},
 	},
 	{

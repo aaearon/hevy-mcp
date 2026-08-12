@@ -5,10 +5,15 @@ import { createToolRuntime } from "./tool-runtime.js";
 import { registerHevyTools, hevyToolDefinitions } from "./register.js";
 import type { ExerciseTemplateCatalog } from "../utils/exercise-template-catalog.js";
 
+type SchemaObject = {
+	properties?: object;
+	items?: unknown;
+};
+
 const EXPECTED_TOOL_NAMES = [
 	"get-workouts",
 	"get-workout",
-	"get-workout-count",
+
 	"get-workout-events",
 	"create-workout",
 	"update-workout",
@@ -17,19 +22,19 @@ const EXPECTED_TOOL_NAMES = [
 	"get-routine",
 	"create-routine",
 	"update-routine",
-	"get-exercise-templates",
+
 	"get-exercise-template",
 	"get-exercise-history",
 	"create-exercise-template",
 	"search-exercise-templates",
-	"get-routine-folders",
+
 	"get-routine-folder",
 	"create-routine-folder",
 	"get-body-measurements",
 	"get-body-measurement",
 	"create-body-measurement",
 	"update-body-measurement",
-	"get-user-info",
+
 	"get-training-summary",
 	"search-routines",
 ] as const;
@@ -41,7 +46,7 @@ describe("registerHevyTools", () => {
 	beforeEach(async () => {
 		server = new McpServer({ name: "tool-list-test", version: "1.0.0" });
 		const catalog: ExerciseTemplateCatalog = {
-			get: async () => [],
+			get: () => Promise.resolve([]),
 			reset: () => {},
 		};
 		registerHevyTools(
@@ -127,11 +132,9 @@ describe("registerHevyTools", () => {
 		const propertyNames: string[] = [];
 		const visit = (schema: unknown): void => {
 			if (!schema || typeof schema !== "object") return;
-			const record = schema as Record<string, unknown>;
-			if (record.properties && typeof record.properties === "object") {
-				for (const [name, child] of Object.entries(
-					record.properties as Record<string, unknown>,
-				)) {
+			const record = schema as SchemaObject;
+			if (record.properties) {
+				for (const [name, child] of Object.entries(record.properties)) {
 					propertyNames.push(name);
 					visit(child);
 				}

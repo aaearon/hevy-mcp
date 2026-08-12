@@ -65,11 +65,11 @@ export const mergeConfig = <T extends RequestConfig>(
 export type ResponseErrorConfig<TError = unknown> = TError;
 
 export type Client = <TData, _TError = unknown, TVariables = unknown>(
-  config: RequestConfig<TVariables>
+  config: RequestConfig<TVariables>,
 ) => Promise<ResponseConfig<TData>>;
 
 export const fetch = async <TData, _TError = unknown, TVariables = unknown>(
-  paramsConfig: RequestConfig<TVariables>
+  paramsConfig: RequestConfig<TVariables>,
 ): Promise<ResponseConfig<TData>> => {
   const normalizedParams = new URLSearchParams();
 
