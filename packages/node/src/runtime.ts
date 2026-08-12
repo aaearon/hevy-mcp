@@ -161,8 +161,12 @@ async function validateApiKey(apiKey: string, signal?: AbortSignal) {
  * Build a connected-ready MCP server.
  *
  * This fork ships no runtime telemetry, so no tool observer, cache observer or
- * SDK error tracking is wired here. The seams still exist in `@hevy-mcp/core`
+ * SDK error tracking is wired here. The seams still exist in the core package
  * but are deliberately left inert; see CLAUDE.md.
+ *
+ * Do not name the private workspace packages literally in this comment: tsdown
+ * preserves JSDoc into the published bundle, and `tests/package/npm-pack-smoke.mjs`
+ * scans packed artifacts for those specifiers as raw text.
  */
 function buildServer(
 	apiKey: string,
