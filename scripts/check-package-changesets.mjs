@@ -187,9 +187,9 @@ function getTransitiveConsumers(packageName) {
 	} catch {
 		return [];
 	}
-	return releaseConsumers(topology, workspace.id).map(
-		(consumer) => workspaceById(topology, consumer).name,
-	);
+	return releaseConsumers(topology, workspace.id)
+		.map((consumer) => workspaceById(topology, consumer).name)
+		.filter((consumer) => !ignoredPackages.has(consumer));
 }
 
 const cascadeRoots = topology.release.bundles.map(

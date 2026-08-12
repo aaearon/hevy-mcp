@@ -180,6 +180,14 @@ cascade is:
 - Node-only, Worker-only, and CLI-only changes bump only their respective
   package; `cloudflare.config.ts` is a Worker change.
 
+**Fork deviation.** `@chrisdoc/hevy-cli` is listed in `.changeset/config.json`
+`ignore` because this fork cannot publish to the `@chrisdoc` scope. Ignored
+packages are therefore omitted from both sides of the check in
+`scripts/check-package-changesets.mjs`: they never require their own Changeset,
+and they never have to appear in a cascade. Naming one anyway makes
+`changeset status` fail with "mixed changeset". Drop the ignore entry only
+together with a decision about who publishes the CLI.
+
 Core, client, operations, and Worker are private but versioned for internal
 release/deployment identity. Node and CLI are public. Merge the automated
 `changeset-release/main` Version Packages pull request on the routine cadence

@@ -465,6 +465,29 @@ describe("package changeset coverage", () => {
 		expect((await runCheck(root, base)).exitCode).toBe(0);
 	});
 
+	// `changeset status` rejects a changeset that mixes ignored and non-ignored
+	// packages, so the cascade must not demand an ignored consumer either.
+	it("omits ignored consumers from the required cascade", async () => {
+		const { base, root } = await createFixture({
+			ignore: ["@chrisdoc/hevy-cli"],
+			packageName: "@hevy-mcp/core",
+			packagePath: "packages/core",
+		});
+		await writeFixtureFile(
+			root,
+			"packages/core/src/index.js",
+			'export const value = "changed";\n',
+		);
+		await writeChangeset(root, [
+			"@hevy-mcp/core",
+			"hevy-mcp",
+			"@hevy-mcp/worker",
+		]);
+		await commitFixture(root);
+
+		expect((await runCheck(root, base)).exitCode).toBe(0);
+	});
+
 	it.each([
 		["hevy-mcp", "packages/node"],
 		["@hevy-mcp/worker", "packages/worker"],
