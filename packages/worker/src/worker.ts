@@ -271,6 +271,11 @@ function logOAuthResponse(
 	status: number,
 ): void {
 	if (status < 400) return;
+	// codeql[js/clear-text-logging] `status` is an HTTP status code and
+	// `context` is request metadata (see WorkerRequestLogContext): request id,
+	// method, path, origin, user agent, an `authMode` enum and a boolean. No
+	// credential reaches this sink. CodeQL taints it only because the caller's
+	// local is named `oauthResponse`, which matches its sensitive-name heuristic.
 	console.warn({
 		event: "worker.oauth_response",
 		...context,
@@ -567,6 +572,9 @@ export function createWorkerFetchHandler(
 			logWorkerFailure("request", error, logContext);
 			throw error;
 		} finally {
+			// codeql[js/clear-text-logging] Same judgement as logOAuthResponse:
+			// this sink receives only an HTTP status code, a duration and the
+			// non-secret WorkerRequestLogContext fields.
 			console.log({
 				event: "worker.request",
 				...logContext,
