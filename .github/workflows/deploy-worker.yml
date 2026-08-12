@@ -17,13 +17,22 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # `vars.CLOUDFLARE_WORKER_NAME` gates the whole job. This fork has no
+  # Cloudflare account behind it, so `CLOUDFLARE_ACCOUNT_ID` /
+  # `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_WORKER_NAME` are all unset and wrangler
+  # aborts with "it's necessary to set a CLOUDFLARE_API_TOKEN environment
+  # variable". Skipping is the honest outcome: there is nothing to deploy to.
+  # The `secrets` context is not available in a job-level `if`, so gate on the
+  # repository variable that is set in lockstep with those secrets. Configure
+  # `CLOUDFLARE_WORKER_NAME` and the deploy job runs exactly as upstream.
   preview:
     name: Deploy PR preview
     if: >-
       github.event_name == 'pull_request' &&
       github.event.action != 'closed' &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.CLOUDFLARE_WORKER_NAME != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -296,7 +305,8 @@ jobs:
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.CLOUDFLARE_WORKER_NAME != ''
     runs-on: ubuntu-latest
     concurrency:
       group: cloudflare-worker-preview-pr-${{ github.event.pull_request.number }}
