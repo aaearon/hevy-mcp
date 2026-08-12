@@ -37,6 +37,7 @@ if (
 		)}, version=${String(version)}`,
 	);
 }
+
 export default defineConfig({
 	entry: isStandaloneBuild ? ["src/cli.ts"] : ["src/index.ts", "src/cli.ts"],
 	format: ["esm"],
@@ -47,7 +48,7 @@ export default defineConfig({
 		__HEVY_MCP_NAME__: JSON.stringify(name),
 		__HEVY_MCP_VERSION__: JSON.stringify(version),
 	},
-	// The public package intentionally omits source maps: they would expose
+	// The published package intentionally omits source maps: they would expose
 	// the private workspace source topology in the tarball.
 	sourcemap: false,
 	clean: true,
@@ -60,7 +61,11 @@ export default defineConfig({
 		: {
 				// Keep the private workspace graph inside the public artifact. Only
 				// Node's declared runtime dependencies remain external.
-				alwaysBundle: ["@hevy-mcp/core", "@hevy-mcp/hevy-client"],
+				alwaysBundle: [
+					"@hevy-mcp/core",
+					"@hevy-mcp/hevy-client",
+					"@hevy-mcp/operations",
+				],
 			},
 	banner: {
 		js: "#!/usr/bin/env node\n// Generated with tsdown\n// https://tsdown.dev",

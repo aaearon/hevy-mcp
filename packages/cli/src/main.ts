@@ -1,4 +1,6 @@
 import { createHevyClient, type HevyClient } from "@hevy-mcp/hevy-client";
+import { bindClientExecution, type ToolExecutionContext } from "@hevy-mcp/core";
+import { createOperations, type HevyOperations } from "@hevy-mcp/operations";
 import { getApiKey } from "./auth.js";
 import { diagnostic, EXIT } from "./errors.js";
 import { readDataSource, type DataSourceReader } from "./input.js";
@@ -11,6 +13,7 @@ export interface RunCliOptions {
 	now?: () => Date;
 	readDataSource?: DataSourceReader;
 	streams?: Streams;
+	execution?: ToolExecutionContext;
 }
 
 export async function runCli(options: RunCliOptions): Promise<number> {
@@ -30,6 +33,7 @@ export async function runCli(options: RunCliOptions): Promise<number> {
 		now: options.now ?? (() => new Date()),
 		readDataSource: options.readDataSource ?? readDataSource,
 		client: undefined as HevyClient | undefined,
+		operations: undefined as HevyOperations | undefined,
 	};
 	const metaCommand = options.argv.some((value) =>
 		["--help", "-h", "--version", "-v"].includes(value),
@@ -37,9 +41,14 @@ export async function runCli(options: RunCliOptions): Promise<number> {
 	try {
 		if (!metaCommand) {
 			const key = getApiKey(options.env ?? globalThis.process.env);
-			context.client = (
+			const createdClient = (
 				options.clientFactory ?? ((apiKey) => createHevyClient({ apiKey }))
 			)(key);
+			const client = options.execution
+				? bindClientExecution(createdClient, options.execution)
+				: createdClient;
+			context.client = client;
+			context.operations = createOperations(client);
 		}
 		const exitCode = await runRoutes(options.argv, context);
 		if (state.error !== undefined) throw state.error;
@@ -51,7 +60,11 @@ export async function runCli(options: RunCliOptions): Promise<number> {
 		return 0;
 	} catch (error) {
 		const failure = diagnostic(error);
-		streams.stderr(`${failure.message}\n`);
+		if (options.argv.includes("--json")) {
+			streams.stderr(`${JSON.stringify(failure)}\n`);
+		} else {
+			streams.stderr(`${failure.message}\n`);
+		}
 		return failure.code;
 	}
 }

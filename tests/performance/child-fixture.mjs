@@ -86,9 +86,22 @@ try {
 
 	if (mode === "representative-read") {
 		for (let iteration = 1; iteration <= 20; iteration += 1) {
+			const id = `representative-${iteration}`;
 			scope()
-				.get("/v1/workouts/count")
-				.reply(200, observed("scenario", { workout_count: iteration }));
+				.get(`/v1/workouts/${id}`)
+				.reply(
+					200,
+					observed("scenario", {
+						id,
+						title: `Performance Workout ${id}`,
+						description: "Deterministic child-local fixture",
+						start_time: "2026-01-01T08:00:00Z",
+						end_time: "2026-01-01T09:00:00Z",
+						created_at: "2026-01-01T08:00:00Z",
+						updated_at: "2026-01-01T09:00:00Z",
+						exercises: [],
+					}),
+				);
 		}
 		result.expectedRequestCount += 20;
 	}
@@ -117,46 +130,60 @@ try {
 
 	if (mode === "sequential-reads") {
 		for (let iteration = 1; iteration <= 100; iteration += 1) {
+			const id = `sequential-${iteration}`;
 			scope()
-				.get("/v1/workouts/count")
-				.reply(200, observed("scenario", { workout_count: iteration }));
+				.get(`/v1/workouts/${id}`)
+				.reply(
+					200,
+					observed("scenario", {
+						id,
+						title: `Performance Workout ${id}`,
+						description: "Deterministic child-local fixture",
+						start_time: "2026-01-01T08:00:00Z",
+						end_time: "2026-01-01T09:00:00Z",
+						created_at: "2026-01-01T08:00:00Z",
+						updated_at: "2026-01-01T09:00:00Z",
+						exercises: [],
+					}),
+				);
 		}
 		result.expectedRequestCount += 100;
 	}
 
-	globalThis.fetch = async (input, init) => {
-		const request = input instanceof Request ? input : undefined;
-		const url = new URL(
-			request?.url ??
-				(typeof input === "string"
-					? input
-					: input instanceof URL
-						? input.href
-						: "<unsupported-fetch-input>"),
-		);
-		const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
-		const headers = new Headers(init?.headers ?? request?.headers);
-		const requestDescription = `${method} ${url.href}`;
-		if (url.origin !== API_BASE || headers.get("api-key") !== API_KEY) {
-			result.unexpectedRequests.push(requestDescription);
-			throw new Error("performance fixture blocked unexpected fetch");
-		}
+	globalThis.fetch = (input, init) =>
+		Promise.resolve().then(() => {
+			const request = input instanceof Request ? input : undefined;
+			const url = new URL(
+				request?.url ??
+					(typeof input === "string"
+						? input
+						: input instanceof URL
+							? input.href
+							: "<unsupported-fetch-input>"),
+			);
+			const method = (init?.method ?? request?.method ?? "GET").toUpperCase();
+			const headers = new Headers(init?.headers ?? request?.headers);
+			const requestDescription = `${method} ${url.href}`;
+			if (url.origin !== API_BASE || headers.get("api-key") !== API_KEY) {
+				result.unexpectedRequests.push(requestDescription);
+				throw new Error("performance fixture blocked unexpected fetch");
+			}
 
-		const index = expectedRequests.findIndex(
-			(expected) =>
-				expected.method === method && expected.path === url.pathname,
-		);
-		if (index === -1) {
-			result.unexpectedRequests.push(requestDescription);
-			throw new Error("performance fixture received an unexpected fetch");
-		}
+			const index = expectedRequests.findIndex(
+				(expected) =>
+					expected.method === method && expected.path === url.pathname,
+			);
+			if (index === -1) {
+				result.unexpectedRequests.push(requestDescription);
+				throw new Error("performance fixture received an unexpected fetch");
+			}
 
-		const [{ body }] = expectedRequests.splice(index, 1);
-		return new Response(JSON.stringify(body()), {
-			status: 200,
-			headers: { "content-type": "application/json" },
+			const [{ body }] = expectedRequests.splice(index, 1);
+			return new Response(JSON.stringify(body()), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
 		});
-	};
 } catch (error) {
 	result.setupFailure = error instanceof Error ? error.message : String(error);
 	process.exitCode = 1;

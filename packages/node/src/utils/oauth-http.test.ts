@@ -95,15 +95,16 @@ async function startServer(password: string | undefined) {
 	const handle = await startStreamableHttpServer(
 		{ transport: "http+oauth", host: "127.0.0.1", port: 0 },
 		"test-api-key",
-		async () => {
+		() => {
 			const server = new McpServer({ name: "test-server", version: "1.0.0" });
-			server.registerTool(
-				"mock-tool",
-				{ description: "A mocked tool" },
-				async () => ({ content: [{ type: "text", text: "mock result" }] }),
+			server.registerTool("mock-tool", { description: "A mocked tool" }, () =>
+				Promise.resolve({
+					content: [{ type: "text" as const, text: "mock result" }],
+				}),
 			);
-			return server;
+			return Promise.resolve(server);
 		},
+		undefined,
 		createOAuthHttpExtensions({
 			issuerUrl: "http://localhost",
 			provider,

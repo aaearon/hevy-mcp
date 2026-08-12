@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import type { HevyClient } from "@hevy-mcp/hevy-client";
 import { createToolRuntime } from "./tool-runtime.js";
 
 const runImmediately = <T>(operation: () => Promise<T>): Promise<T> =>
 	operation();
 
 const catalog = {
-	get: async () => [],
+	get: () => Promise.resolve([]),
 	reset: () => undefined,
 };
 
@@ -25,9 +26,9 @@ describe("createToolRuntime observation scope", () => {
 				}),
 			},
 		});
-		const handler = runtime.createHandler(async () => {
+		const handler = runtime.createHandler(() => {
 			executions += 1;
-			return { content: [{ type: "text", text: "ok" }] };
+			return Promise.resolve({ content: [{ type: "text", text: "ok" }] });
 		}, "create-workout");
 
 		await expect(handler({ id: "workout-id" })).resolves.toMatchObject({
@@ -39,9 +40,11 @@ describe("createToolRuntime observation scope", () => {
 
 	it("starts the handler lazily inside the active observer scope", async () => {
 		let active = false;
-		const handler = vi.fn(async () => {
+		const handler = vi.fn(() => {
 			expect(active).toBe(true);
-			return { content: [{ type: "text" as const, text: "ok" }] };
+			return Promise.resolve({
+				content: [{ type: "text" as const, text: "ok" }],
+			});
 		});
 		let runCalls = 0;
 		const run = async <T>(operation: () => Promise<T>): Promise<T> => {
@@ -100,7 +103,7 @@ describe("createToolRuntime observation scope", () => {
 		});
 		const secret = "private-routine-title-sentinel";
 		const handler = runtime.createHandler(
-			async () => ({ content: [] }),
+			() => Promise.resolve({ content: [] }),
 			"list-routines",
 			{ feature: "routines", kind: "read", operation: "list" },
 		);
@@ -153,7 +156,10 @@ describe("createToolRuntime observation scope", () => {
 			text: `result-${index}`,
 		}));
 
-		await runtime.createHandler(async () => ({ content }), "list-workouts")({});
+		await runtime.createHandler(
+			() => Promise.resolve({ content }),
+			"list-workouts",
+		)({});
 
 		expect(finish).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -180,9 +186,10 @@ describe("createToolRuntime observation scope", () => {
 		});
 		const stderr = vi.spyOn(console, "error").mockImplementation(() => {});
 
-		const result = await runtime.createHandler(async () => {
-			throw new Error(secret);
-		}, "get-user-info")({});
+		const result = await runtime.createHandler(
+			() => Promise.reject(new Error(secret)),
+			"get-workouts",
+		)({});
 
 		expect(result).toMatchObject({ isError: true });
 		expect(finish).toHaveBeenCalledWith(
@@ -194,5 +201,29 @@ describe("createToolRuntime observation scope", () => {
 		);
 		expect(JSON.stringify(finish.mock.calls)).not.toContain(secret);
 		stderr.mockRestore();
+	});
+
+	it("lets the newest nested execution scope control the client", async () => {
+		const getUserInfo = vi.fn().mockResolvedValue({ data: { id: "user" } });
+		const client = { getUserInfo } as unknown as HevyClient;
+		const runtime = createToolRuntime({ client, catalog });
+		const firstSignal = new AbortController().signal;
+		const secondSignal = new AbortController().signal;
+		const first = runtime.forExecution({
+			signal: firstSignal,
+			deadline: 111,
+		});
+		const second = first.forExecution({
+			signal: secondSignal,
+			deadline: 222,
+		});
+
+		expect(second.executionDeadline).toBe(222);
+		await second.getClient().getUserInfo();
+
+		expect(getUserInfo).toHaveBeenCalledWith({
+			signal: secondSignal,
+			deadline: 222,
+		});
 	});
 });

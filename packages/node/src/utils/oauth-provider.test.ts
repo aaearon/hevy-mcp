@@ -51,9 +51,11 @@ function authorizationRequest(
 	client: OAuthClientInformationFull,
 	codeChallenge: string,
 ): AuthorizationRequest {
+	const [redirectUri] = client.redirect_uris;
+	if (!redirectUri) throw new Error("Fixture client has no redirect URI");
 	return {
 		clientId: client.client_id,
-		redirectUri: client.redirect_uris[0]!,
+		redirectUri,
 		scopes: ["mcp"],
 		state: "state-value",
 		codeChallenge,

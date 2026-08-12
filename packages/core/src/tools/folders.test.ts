@@ -20,27 +20,17 @@ function handler(tool: { mock: { calls: unknown[][] } }, name: string) {
 		([registeredName]) => registeredName === name,
 	);
 	if (!call) throw new Error(`Tool ${name} was not registered`);
-	return call.at(-1) as (
-		args: Record<string, unknown>,
-	) => Promise<Record<string, unknown>>;
+	return call.at(-1) as (args: object) => Promise<object>;
 }
 
 describe("routine folder tools", () => {
 	it("maps snake_case pagination and folder identifiers", async () => {
 		const client = {
-			getRoutineFolders: vi
-				.fn()
-				.mockResolvedValue({ routine_folders: [], page_count: 1 }),
 			getRoutineFolder: vi.fn().mockResolvedValue({ id: 3, title: "Strength" }),
 		} as unknown as HevyClient;
 		const tool = register(client);
 
-		await handler(tool, "get-routine-folders")({ page: 2, page_size: 5 });
 		await handler(tool, "get-routine-folder")({ folder_id: "3" });
-		expect(client.getRoutineFolders).toHaveBeenCalledWith({
-			page: 2,
-			pageSize: 5,
-		});
 		expect(client.getRoutineFolder).toHaveBeenCalledWith("3");
 	});
 
@@ -58,15 +48,5 @@ describe("routine folder tools", () => {
 		expect(client.createRoutineFolder).toHaveBeenCalledWith({
 			routine_folder: { title: "Strength" },
 		});
-	});
-
-	it("rejects legacy folderId and pageSize arguments", () => {
-		const tool = register(null);
-		const listSchema = tool.mock.calls.find(
-			([name]) => name === "get-routine-folders",
-		)?.[1] as { inputSchema: { parse(value: unknown): unknown } };
-		expect(() =>
-			listSchema.inputSchema.parse({ page: 1, pageSize: 5 }),
-		).toThrow();
 	});
 });

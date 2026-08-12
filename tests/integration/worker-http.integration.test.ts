@@ -5,6 +5,7 @@ import { networkInterfaces } from "node:os";
 import { setTimeout as delay } from "node:timers/promises";
 import {
 	Client,
+	type JSONObject,
 	StreamableHTTPClientTransport,
 	LATEST_PROTOCOL_VERSION,
 } from "@modelcontextprotocol/client";
@@ -143,21 +144,18 @@ function writeJson(
 	response.end(JSON.stringify(body));
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+function isRecord(value: unknown): value is JSONObject {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function requireRecord(value: unknown, label: string): Record<string, unknown> {
+function requireRecord(value: unknown, label: string): JSONObject {
 	if (!isRecord(value)) {
 		throw new Error(`Expected ${label} to be an object`);
 	}
 	return value;
 }
 
-function requireArrayField(
-	record: Record<string, unknown>,
-	field: string,
-): unknown[] {
+function requireArrayField(record: JSONObject, field: string): unknown[] {
 	const value = record[field];
 	if (!Array.isArray(value)) {
 		throw new Error(`Expected ${field} to be an array`);
@@ -168,7 +166,7 @@ function requireArrayField(
 function requireToolListPayload(
 	result: unknown,
 	field: string,
-): { firstItem: Record<string, unknown>; items: unknown[]; text: string } {
+): { firstItem: JSONObject; items: unknown[]; text: string } {
 	const resultRecord = requireRecord(result, "MCP tool response");
 	const content = requireArrayField(resultRecord, "content");
 	const firstContent = requireRecord(content[0], "content[0]");
@@ -212,16 +210,17 @@ async function waitForWranglerReady(): Promise<void> {
 }
 
 async function stopWrangler(): Promise<void> {
-	if (!wrangler || wrangler.exitCode !== null || wrangler.pid === undefined)
-		return;
+	const child = wrangler;
+	if (!child || child.exitCode !== null || child.pid === undefined) return;
+	const pid = child.pid;
 
 	const exited = new Promise<void>((resolve) =>
-		wrangler.once("exit", () => resolve()),
+		child.once("exit", () => resolve()),
 	);
 	const signalProcessGroup = (signal: NodeJS.Signals) => {
 		try {
-			if (process.platform === "win32") wrangler.kill(signal);
-			else process.kill(-wrangler.pid!, signal);
+			if (process.platform === "win32") child.kill(signal);
+			else process.kill(-pid, signal);
 		} catch (error) {
 			if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
 		}
@@ -273,7 +272,7 @@ function mcpHeaders(apiKey = VALID_API_KEY): Headers {
 	});
 }
 
-function initializeRequest(id = 1): Record<string, unknown> {
+function initializeRequest(id = 1): JSONObject {
 	return {
 		jsonrpc: "2.0",
 		id,
@@ -332,12 +331,13 @@ async function parseSseMessage(response: Response): Promise<{
 }> {
 	const rawPayload = await response.text();
 	const events = parseSseEvents(rawPayload);
-	if (events.length !== 1) {
+	const event = events[0];
+	if (events.length !== 1 || event === undefined) {
 		throw new Error(`Expected one SSE event, received ${events.length}`);
 	}
 	return {
-		event: events[0]!.event,
-		payload: JSON.parse(events[0]!.data) as unknown,
+		event: event.event,
+		payload: JSON.parse(event.data) as unknown,
 	};
 }
 
@@ -533,7 +533,17 @@ describe.sequential("Wrangler-backed Worker HTTP integration", () => {
 		);
 
 		expect(response.status).toBe(502);
-		expect(await response.text()).toBe("Hevy API is temporarily unavailable");
+		const body = await response.json();
+		expect(body).toMatchObject({
+			error: {
+				outcome: "terminal_failure",
+				phase: "response-content",
+				operation_safety: "read",
+				commit_state: "not_sent",
+				safe_to_retry: false,
+			},
+		});
+		expect(JSON.stringify(body)).not.toContain(REDIRECT_API_KEY);
 		expect(hevyRequests).toEqual([
 			expect.objectContaining({
 				apiKey: REDIRECT_API_KEY,
@@ -564,14 +574,14 @@ describe.sequential("Wrangler-backed Worker HTTP integration", () => {
 		try {
 			await client.connect(transport);
 			const tools = await client.listTools();
-			expect(tools.tools.map((tool) => tool.name)).toContain("get-user-info");
+			expect(tools.tools.map((tool) => tool.name)).toContain("get-workouts");
 
 			const requestsBeforeToolCall = hevyRequests.length;
 			const result = await client.callTool({
-				name: "get-user-info",
-				arguments: {},
+				name: "get-workouts",
+				arguments: { page: 1, page_size: 1 },
 			});
-			expect(JSON.stringify(result)).toContain("fake-user-id");
+			expect(JSON.stringify(result)).toContain("worker-workout-1");
 			expect(hevyRequests.length - requestsBeforeToolCall).toBe(2);
 			expect(transport.sessionId).toBeUndefined();
 			expect(
@@ -615,11 +625,6 @@ describe.sequential("Wrangler-backed Worker HTTP integration", () => {
 					field: "routines",
 					name: "get-routines",
 				},
-				{
-					expectedId: "worker-template-1",
-					field: "exercise_templates",
-					name: "get-exercise-templates",
-				},
 			] as const;
 
 			for (const call of calls) {
@@ -638,17 +643,6 @@ describe.sequential("Wrangler-backed Worker HTTP integration", () => {
 				expect(JSON.parse(payload.text)).toEqual(payload.items);
 			}
 
-			const folderResult = await client.callTool({
-				name: "get-routine-folders",
-				arguments: { page: 1, page_size: 1 },
-			});
-			const folderPayload = requireToolListPayload(
-				folderResult,
-				"routine_folders",
-			);
-			expect(folderPayload.firstItem.id).toBe(10);
-			expect(typeof folderPayload.firstItem.id).toBe("number");
-			expect(JSON.parse(folderPayload.text)).toEqual(folderPayload.items);
 			expect(transport.sessionId).toBeUndefined();
 		} finally {
 			await client.close();

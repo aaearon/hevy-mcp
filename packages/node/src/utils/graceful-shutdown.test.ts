@@ -36,14 +36,16 @@ describe("package-local graceful shutdown", () => {
 		const events: string[] = [];
 		const controller = installGracefulShutdown({
 			target: {
-				close: vi.fn(async () => {
+				close: vi.fn(() => {
 					events.push("close");
+					return Promise.resolve();
 				}),
 			},
 			process,
 			logError: (message) => events.push(message),
-			flush: vi.fn(async () => {
+			flush: vi.fn(() => {
 				events.push("flush");
+				return Promise.resolve();
 			}),
 		});
 
@@ -72,6 +74,55 @@ describe("package-local graceful shutdown", () => {
 		process.emit("SIGINT");
 		await controller.getShutdownPromise();
 
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("aborts active execution before closing the server", async () => {
+		const process = new FakeProcess();
+		const cancel = new AbortController();
+		const close = vi.fn().mockResolvedValue(undefined);
+		const controller = installGracefulShutdown({
+			target: { close },
+			process,
+			cancel,
+			flush: vi.fn().mockResolvedValue(undefined),
+		});
+
+		process.emit("SIGINT");
+		await controller.getShutdownPromise();
+
+		expect(cancel.signal.aborted).toBe(true);
+		expect(close).toHaveBeenCalledOnce();
+	});
+
+	it("releases pending Hevy work before forced shutdown cleanup", async () => {
+		const process = new FakeProcess();
+		const cancel = new AbortController();
+		let activeSettled = false;
+		const activeWork = new Promise<void>((resolve) => {
+			cancel.signal.addEventListener(
+				"abort",
+				() => {
+					activeSettled = true;
+					resolve();
+				},
+				{ once: true },
+			);
+		});
+		const close = vi.fn(async () => {
+			await activeWork;
+		});
+		const controller = installGracefulShutdown({
+			target: { close },
+			process,
+			cancel,
+			flush: vi.fn().mockResolvedValue(undefined),
+		});
+
+		process.emit("SIGTERM");
+		await controller.getShutdownPromise();
+
+		expect(activeSettled).toBe(true);
 		expect(close).toHaveBeenCalledOnce();
 	});
 });

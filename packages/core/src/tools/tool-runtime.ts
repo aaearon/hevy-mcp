@@ -1,5 +1,6 @@
 import type { McpClientLogger } from "../utils/mcp-client-logger.js";
 import type { HevyClient } from "@hevy-mcp/hevy-client";
+import { createOperations, type HevyOperations } from "@hevy-mcp/operations";
 import {
 	HEVY_CLIENT_NOT_INITIALIZED_ERROR,
 	requireClient,
@@ -15,6 +16,12 @@ import {
 } from "../observation.js";
 import { bucketCount, getResultTelemetry } from "../utils/result-telemetry.js";
 import { resolveErrorPolicy } from "../utils/error-policy.js";
+import {
+	bindClientExecution,
+	mergeAbortSignals,
+	type ToolExecutionContext,
+} from "../execution.js";
+import { DEFAULT_API_TIMEOUT_MS } from "@hevy-mcp/hevy-client";
 
 const STRUCTURAL_ARGUMENT_KEYS: Readonly<Record<string, true>> = {
 	page: true,
@@ -68,9 +75,10 @@ const structuralArgumentKeys = Object.keys(
 
 function createSafeInvocation(
 	name: string,
-	args: Record<string, unknown>,
+	args: object,
 	taxonomy: ToolTelemetryMetadata | undefined,
 ) {
+	const argumentValues = new Map<string, unknown>(Object.entries(args));
 	const argumentKeys = structuralArgumentKeys.filter((key) => key in args);
 	const argumentPresence: Record<string, true> = {};
 	const numericArgumentBuckets: Record<
@@ -80,7 +88,7 @@ function createSafeInvocation(
 	const booleanArguments: Record<string, boolean> = {};
 
 	for (const key of argumentKeys) {
-		const value = args[key];
+		const value = argumentValues.get(key);
 		if (
 			key in PRESENCE_ARGUMENT_KEYS &&
 			value !== null &&
@@ -107,11 +115,12 @@ function createSafeInvocation(
 	};
 }
 
-export type ToolHandler<
-	TParams extends Record<string, unknown> = Record<string, unknown>,
-> = (args: TParams) => Promise<McpToolResponse>;
+export type ToolHandler<TParams extends object = object> = (
+	args: TParams,
+	context?: ToolExecutionContext,
+) => Promise<McpToolResponse>;
 
-export type ToolHandlerFactory = <TParams extends Record<string, unknown>>(
+export type ToolHandlerFactory = <TParams extends object>(
 	fn: ToolHandler<TParams>,
 	context: string,
 	metadata?: ToolTelemetryMetadata,
@@ -120,20 +129,34 @@ export interface ToolRuntime {
 	readonly client: HevyClient | null;
 	readonly catalog: ExerciseTemplateCatalog;
 	readonly logger?: McpClientLogger;
+	readonly execution?: ToolExecutionContext;
+	readonly executionTimeoutMs: number;
+	readonly executionDeadline?: number;
+	readonly lifecycleSignal?: AbortSignal;
+	readonly operations: HevyOperations | null;
 	readonly createHandler: ToolHandlerFactory;
 	getClient(): HevyClient;
+	getOperations(): HevyOperations;
+	forExecution(context?: ToolExecutionContext): ToolRuntime;
 }
 
 export interface CreateToolRuntimeOptions {
 	client: HevyClient | null;
+	/** Unbound client retained across nested execution scopes. */
+	baseClient?: HevyClient | null;
+	operations?: HevyOperations;
 	catalog: ExerciseTemplateCatalog;
 	logger?: McpClientLogger;
 	createHandler?: ToolHandlerFactory;
 	observer?: ToolObserver;
+	execution?: ToolExecutionContext;
+	executionTimeoutMs?: number;
+	executionDeadline?: number;
+	lifecycleSignal?: AbortSignal;
 }
 
 export const defaultHandlerFactory: ToolHandlerFactory = <
-	TParams extends Record<string, unknown>,
+	TParams extends object,
 >(
 	fn: ToolHandler<TParams>,
 	context: string,
@@ -141,20 +164,28 @@ export const defaultHandlerFactory: ToolHandlerFactory = <
 
 export function createToolRuntime({
 	client,
+	baseClient,
+	operations,
 	catalog,
 	logger,
 	createHandler = defaultHandlerFactory,
 	observer,
+	execution,
+	executionTimeoutMs = DEFAULT_API_TIMEOUT_MS,
+	executionDeadline,
+	lifecycleSignal,
 }: CreateToolRuntimeOptions): ToolRuntime {
-	const createObservedHandler: ToolHandlerFactory = <
-		TParams extends Record<string, unknown>,
-	>(
+	const rawClient = baseClient ?? client;
+	const resolvedOperations =
+		operations ?? (rawClient ? createOperations(rawClient) : null);
+	const effectiveExecutionDeadline = executionDeadline ?? execution?.deadline;
+	const createObservedHandler: ToolHandlerFactory = <TParams extends object>(
 		fn: ToolHandler<TParams>,
 		context: string,
 		metadata?: ToolTelemetryMetadata,
 	) =>
 		createHandler<TParams>(
-			async (args: TParams) => {
+			async (args: TParams, requestContext?: ToolExecutionContext) => {
 				let scope;
 				try {
 					scope = memoizeObservationScope(
@@ -166,7 +197,9 @@ export function createToolRuntime({
 				const startedAt = Date.now();
 				let handlerPromise: Promise<McpToolResponse> | undefined;
 				const invokeHandler = () => {
-					handlerPromise ??= Promise.resolve().then(() => fn(args));
+					handlerPromise ??= Promise.resolve().then(() =>
+						fn(args, requestContext),
+					);
 					return handlerPromise;
 				};
 				try {
@@ -184,6 +217,9 @@ export function createToolRuntime({
 					void scope?.finish({
 						outcome: result.isError ? "returned_error" : "success",
 						durationMs: Date.now() - startedAt,
+						...(result.errorOutcome
+							? { errorOutcome: result.errorOutcome }
+							: {}),
 						result: {
 							isError: Boolean(result.isError),
 							hasStructuredContent: result.structuredContent !== undefined,
@@ -209,13 +245,54 @@ export function createToolRuntime({
 	const observedHandlerFactory = observer
 		? createObservedHandler
 		: createHandler;
-	return {
+	const runtime: ToolRuntime = {
 		client,
-		catalog,
+		catalog: execution
+			? {
+					get: (options) => catalog.get({ ...options, execution }),
+					reset: () => catalog.reset(),
+				}
+			: catalog,
 		logger,
+		execution,
+		executionTimeoutMs,
+		executionDeadline: effectiveExecutionDeadline,
+		lifecycleSignal,
+		operations: resolvedOperations,
 		createHandler: observedHandlerFactory,
 		getClient: () => requireClient(client),
+		getOperations: () =>
+			resolvedOperations ?? createOperations(requireClient(client)),
+		forExecution: (nextExecution) =>
+			createToolRuntime({
+				client: rawClient,
+				baseClient: rawClient,
+				operations: resolvedOperations ?? undefined,
+				catalog,
+				logger,
+				createHandler,
+				observer,
+				execution: {
+					...(nextExecution ?? {}),
+					signal: mergeAbortSignals(lifecycleSignal, nextExecution?.signal),
+					deadline:
+						nextExecution?.deadline ??
+						effectiveExecutionDeadline ??
+						Date.now() + executionTimeoutMs,
+				},
+				executionTimeoutMs,
+				executionDeadline:
+					nextExecution?.deadline ?? effectiveExecutionDeadline,
+				lifecycleSignal,
+			}),
 	};
+	if (execution && client) {
+		Object.assign(runtime, {
+			client: bindClientExecution(requireClient(rawClient), execution),
+			getClient: () => bindClientExecution(requireClient(rawClient), execution),
+		});
+	}
+	return runtime;
 }
 
 export { HEVY_CLIENT_NOT_INITIALIZED_ERROR };

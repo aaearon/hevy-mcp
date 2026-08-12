@@ -40,6 +40,8 @@ jobs:
       - name: Checkout repository
         id: checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up Node.js
         id: setup_node
@@ -53,7 +55,7 @@ jobs:
 
       - name: Build local source
         if: matrix.launcher.name == 'source'
-        run: npm run build
+        run: npx nx run repository:build
 
       - name: Set up Bun
         if: matrix.launcher.command == 'bunx'
@@ -61,7 +63,7 @@ jobs:
 
       - name: Run MCP integration test
         id: run_mcp_integration_test
-        run: node tests/nightly/test_hevy_mcp.mjs
+        run: npx nx run repository:test:nightly
         env:
           HEVY_API_KEY: ${{ secrets.HEVY_API_KEY }}
           HEVY_MCP_COMMAND: ${{ matrix.launcher.command }}

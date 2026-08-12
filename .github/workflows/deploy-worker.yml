@@ -17,12 +17,22 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
+  # `vars.CLOUDFLARE_WORKER_NAME` gates the whole job. This fork has no
+  # Cloudflare account behind it, so `CLOUDFLARE_ACCOUNT_ID` /
+  # `CLOUDFLARE_API_TOKEN` / `CLOUDFLARE_WORKER_NAME` are all unset and wrangler
+  # aborts with "it's necessary to set a CLOUDFLARE_API_TOKEN environment
+  # variable". Skipping is the honest outcome: there is nothing to deploy to.
+  # The `secrets` context is not available in a job-level `if`, so gate on the
+  # repository variable that is set in lockstep with those secrets. Configure
+  # `CLOUDFLARE_WORKER_NAME` and the deploy job runs exactly as upstream.
   preview:
     name: Deploy PR preview
     if: >-
       github.event_name == 'pull_request' &&
       github.event.action != 'closed' &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.CLOUDFLARE_WORKER_NAME != ''
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,6 +54,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -112,20 +123,33 @@ jobs:
           --keep-vars
           --message "Bootstrap inert ${CLOUDFLARE_WORKER_NAME} Worker for GitHub PR versions"
 
+      - name: Resolve preview Worker version tag
+        id: worker_version
+        run: |
+          tag="$(node scripts/resolve-worker-version.mjs preview \
+            "${{ github.event.pull_request.number }}" \
+            "${{ github.event.pull_request.head.sha }}")"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Upload preview version
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PREVIEW_ALIAS: pr-${{ github.event.pull_request.number }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-output.ndjson
+          WORKER_VERSION_TAG: ${{ steps.worker_version.outputs.tag }}
         run: |
           # Truncate to prevent stale entries from a prior run polluting version ID extraction
-          > "${WRANGLER_OUTPUT_FILE_PATH}"
+          : > "${WRANGLER_OUTPUT_FILE_PATH}"
           npx wrangler versions upload \
             --x-new-config \
             --env preview \
             --keep-vars \
-            --preview-alias pr-${{ github.event.pull_request.number }} \
-            --message "GitHub PR #${{ github.event.pull_request.number }} at ${{ github.event.pull_request.head.sha }}"
+            --preview-alias "${PREVIEW_ALIAS}" \
+            --tag "${WORKER_VERSION_TAG}" \
+            --message "GitHub PR #${PR_NUMBER} at ${HEAD_SHA}"
 
       - name: Activate preview version
         env:
@@ -280,7 +304,9 @@ jobs:
       github.event_name == 'pull_request' &&
       github.event.action == 'closed' &&
       github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      vars.CLOUDFLARE_WORKER_NAME != ''
     runs-on: ubuntu-latest
     concurrency:
       group: cloudflare-worker-preview-pr-${{ github.event.pull_request.number }}
@@ -297,6 +323,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
       - name: Set up Node.js
         uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -314,7 +341,7 @@ jobs:
           WRANGLER_OUTPUT_FILE_PATH: ${{ runner.temp }}/wrangler-cleanup-output.ndjson
         run: |
           # Truncate to prevent stale entries from a prior run polluting version ID extraction
-          > "${WRANGLER_OUTPUT_FILE_PATH}"
+          : > "${WRANGLER_OUTPUT_FILE_PATH}"
           npx wrangler versions upload .github/workers/preview-bootstrap.ts \
             --x-new-config \
             --env preview \

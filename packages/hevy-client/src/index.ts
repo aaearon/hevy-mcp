@@ -1,4 +1,24 @@
 export {
+	HEVY_ENDPOINT_TEMPLATES,
+	canonicalEndpointIdentity,
+	diagnosticEndpointIdentity,
+	expectedGet404Outcome,
+	isExpectedMutation404,
+	isTransientRetryCode,
+	isTransientRetryFailure,
+	isTransientRetryStatus,
+	metricEndpointIdentity,
+	mutation404Policy,
+	resolveHevyEndpoint,
+	type ExpectedGet404Outcome,
+	type HevyDiagnosticEndpoint,
+	type HevyEndpointIdentity,
+	type HevyEndpointResolution,
+	type HevyEndpointTemplate,
+	type HevyMetricEndpoint,
+	type Mutation404Policy,
+} from "./endpoint-policy.js";
+export {
 	createHevyClient,
 	type CreateHevyClientOptions,
 	type HevyClient,
@@ -7,6 +27,7 @@ export {
 } from "./hevy-client.js";
 export {
 	DEFAULT_API_TIMEOUT_MS,
+	HEVY_DEADLINE_EXCEEDED_ERROR_CODE,
 	HEVY_REQUEST_ABORTED_ERROR_CODE,
 	HEVY_RETRY_EXHAUSTED_ERROR_CODE,
 	MAX_GET_RETRIES,
@@ -21,7 +42,24 @@ export {
 	type HevyRetryWaitScope,
 } from "./hevy-client-kubb.js";
 export {
+	canRetryOperation,
+	commitStateFor,
+	createExecutionSignal,
+	isAbortLike,
+	isDeadlineExceeded,
+	operationSafetyForMethod,
+	remainingDeadlineMs,
+	type HevyCommitState,
+	type HevyExecutionControl,
+	type HevyExecutionOptions,
+	type HevyExecutionOutcome,
+	type HevyExecutionOutcomeDetails,
+	type HevyOperationSafety,
+	type HevyRequestPhase,
+} from "./execution.js";
+export {
 	HevyHttpError,
 	isHevyHttpError,
+	type HevyExecutionMetadata,
 	type HevyHttpErrorOptions,
 } from "./hevy-http-error.js";

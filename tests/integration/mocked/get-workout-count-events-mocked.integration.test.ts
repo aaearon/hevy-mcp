@@ -1,5 +1,5 @@
 import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
-import { Client } from "@modelcontextprotocol/client";
+import { Client, type JSONObject } from "@modelcontextprotocol/client";
 import nock from "nock";
 import {
 	afterAll,
@@ -27,11 +27,7 @@ function getApiScope() {
 	});
 }
 
-async function callTool(
-	client: Client,
-	name: string,
-	arguments_: Record<string, unknown>,
-) {
+async function callTool(client: Client, name: string, arguments_: JSONObject) {
 	const result = await client.request({
 		method: "tools/call",
 		params: {
@@ -103,21 +99,6 @@ describe("Hevy MCP workout detail endpoints mocked tests", () => {
 
 	afterAll(() => {
 		nock.enableNetConnect();
-	});
-
-	it("mocks get-workout-count through MCP transport", async () => {
-		if (!client) throw new Error("Client not initialized");
-
-		getApiScope().get("/v1/workouts/count").reply(200, {
-			workout_count: 42,
-		});
-
-		const result = await callTool(client, "get-workout-count", {});
-		const payload = JSON.parse(result.text) as { workout_count: number };
-
-		expect(result.isError).toBeFalsy();
-		expect(payload.workout_count).toBe(42);
-		expect(result.structuredContent).toEqual({ workout_count: 42 });
 	});
 
 	it("mocks get-workout-events through MCP transport", async () => {

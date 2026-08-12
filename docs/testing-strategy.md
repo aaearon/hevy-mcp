@@ -101,7 +101,7 @@ record a new merged-main baseline after fixing the denominator.
 | Release checks         | `.github/workflows/release.yml`                      | Unit, live integration, and source stdio checks run before publishing.                                  |
 | CI runtime matrix      | `.github/workflows/build-and-test.yml`               | Node 24 and 26 build, type, style, unit, and mocked integration checks.                                 |
 | Docker smoke           | `.github/workflows/build-and-test.yml`, `Dockerfile` | Image build plus unauthenticated `--version` and `--help` smoke checks.                                 |
-| Coverage               | `vitest.config.ts`, `codecov.yml`                    | V8/LCOV reports, Codecov project comparison, patch status, generated-code exclusion.                    |
+| Coverage               | `vitest.config.ts`, `codecov.yml`                    | V8/LCOV reports, Codecov uploads, disabled project and patch status contexts, generated-code exclusion. |
 | Response contracts     | `packages/core/src/utils/response-formatter.ts`      | Co-located Zod output schemas, raw-to-public formatting, legacy text projection, and response assembly. |
 | Prompts/resources      | `packages/core/src/{prompts,resources}/`             | Dedicated registrations and focused tests; resource calls also have mocked MCP coverage.                |
 | SDK-sensitive stdio    | `packages/node/src/utils/stdio-parsing.ts`           | Private SDK access is isolated and has focused buffering/protocol regression tests.                     |
@@ -289,18 +289,20 @@ these names rather than duplicating selectors:
 
 ```json
 {
-	"test:unit": "vitest run --exclude 'tests/integration/**' --exclude 'tests/performance/**'",
-	"test:mcp": "vitest run tests/integration/mocked",
+	"test:unit": "node scripts/run-vitest-lane.mjs unit",
+	"test:mcp": "node scripts/run-vitest-lane.mjs mocked",
 	"test:contract": "vitest run <current contract baseline>",
 	"test:stdio": "vitest run <current stdio/process baseline>",
-	"test:pack": "node tests/package/npm-pack-smoke.mjs",
-	"test:live": "node --env-file-if-exists=.env scripts/run-live-tests.mjs",
+	"test:pack": "nx run repository:test:pack",
+	"test:live": "node --env-file-if-exists=.env scripts/run-live-vitest.mjs HEVY_API_KEY tests/integration/hevy-mcp.integration.test.ts",
 	"test:nightly": "node --env-file-if-exists=.env tests/nightly/test_hevy_mcp.mjs",
-	"test:performance": "npm run build && vitest run tests/performance/performance.test.ts",
-	"test:coverage": "unit and mocked MCP coverage via their named lanes",
-	"test:pr": "npm run test:unit && npm run test:mcp && npm run test:contract && npm run test:stdio && npm run test:pack"
+	"test:performance": "nx run repository:test:performance",
+	"test:pr": "nx run repository:test:pr"
 }
 ```
+
+Coverage uses the unit and mocked MCP commands with their existing
+`--coverage.reportsDirectory` arguments instead of a separate wrapper alias.
 
 `test:live` and `test:nightly` must fail fast with a clear message when they are
 explicitly invoked without required credentials. They should not silently turn

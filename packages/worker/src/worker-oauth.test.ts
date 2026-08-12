@@ -76,10 +76,14 @@ function createDependencies(
 	};
 }
 
-function authorizePostRequest(fields: Record<string, string>): Request {
+function authorizePostRequest(
+	fields: Record<string, string>,
+	signal?: AbortSignal,
+): Request {
 	return new Request("https://worker.example/authorize", {
 		method: "POST",
 		body: new URLSearchParams(fields),
+		signal,
 	});
 }
 
@@ -242,7 +246,12 @@ describe("authorize endpoint", () => {
 
 		expect(result.status).toBe(302);
 		expect(result.headers.get("location")).toContain("code=abc");
-		expect(validateApiKey).toHaveBeenCalledWith("secret-key", {});
+		expect(validateApiKey).toHaveBeenCalledWith(
+			"secret-key",
+			{},
+			expect.any(AbortSignal),
+			expect.any(Number),
+		);
 		expect(completeAuthorization).toHaveBeenCalledTimes(1);
 		const options = completeAuthorization.mock.calls[0]?.[0];
 		expect(options?.request).toEqual(sampleAuthRequest);
@@ -270,7 +279,7 @@ describe("authorize endpoint", () => {
 		expect(completeAuthorization).not.toHaveBeenCalled();
 	});
 
-	it("re-renders with 502 when Hevy is unavailable", async () => {
+	it("re-renders the form when Hevy validation is unavailable", async () => {
 		const result = await handleAuthorizePost(
 			authorizePostRequest({
 				oauth_request: encodeAuthRequest(sampleAuthRequest),
@@ -279,11 +288,33 @@ describe("authorize endpoint", () => {
 			{},
 			createFakeHelpers(),
 			createDependencies({
-				validateApiKey: vi.fn().mockResolvedValue("unavailable"),
+				validateApiKey: vi.fn().mockRejectedValue(new Error("upstream outage")),
 			}),
 		);
+
 		expect(result.status).toBe(502);
-		expect(await result.text()).toContain("temporarily unavailable");
+		expect(result.headers.get("content-type")).toContain("text/html");
+		expect(await result.text()).toContain(
+			"Unable to validate the Hevy API key",
+		);
+	});
+
+	it("re-renders the form when OAuth validation has a configuration error", async () => {
+		const result = await handleAuthorizePost(
+			authorizePostRequest({
+				oauth_request: encodeAuthRequest(sampleAuthRequest),
+				hevy_api_key: "some-key",
+			}),
+			{},
+			createFakeHelpers(),
+			createDependencies({
+				validateApiKey: vi.fn().mockResolvedValue("config-error"),
+			}),
+		);
+
+		expect(result.status).toBe(500);
+		expect(result.headers.get("content-type")).toContain("text/html");
+		expect(await result.text()).toContain("Worker configuration error");
 	});
 
 	it("rejects submissions without a usable auth request", async () => {
@@ -315,6 +346,67 @@ describe("authorize endpoint", () => {
 		expect(result.status).toBe(400);
 		expect(validateApiKey).not.toHaveBeenCalled();
 	});
+
+	it("projects an aborted OAuth validation as cancellation", async () => {
+		const controller = new AbortController();
+		const validateApiKey = vi.fn(
+			(_apiKey: string, _env: object, signal?: AbortSignal) =>
+				new Promise<"valid">((_resolve, reject) => {
+					signal?.addEventListener(
+						"abort",
+						() => reject(new DOMException("request cancelled", "AbortError")),
+						{ once: true },
+					);
+				}),
+		);
+		const pending = handleAuthorizePost(
+			authorizePostRequest(
+				{
+					oauth_request: encodeAuthRequest(sampleAuthRequest),
+					hevy_api_key: "some-key",
+				},
+				controller.signal,
+			),
+			{},
+			createFakeHelpers(),
+			createDependencies({ validateApiKey }),
+		);
+		await vi.waitFor(() => expect(validateApiKey).toHaveBeenCalledOnce());
+		controller.abort(new DOMException("request cancelled", "AbortError"));
+		const result = await pending;
+		expect(result.status).toBe(499);
+		expect(result.headers.get("content-type")).toContain("text/html");
+		expect(await result.text()).toContain("Request cancelled");
+	});
+
+	it("preserves an OAuth validation deadline outcome", async () => {
+		const pending = handleAuthorizePost(
+			authorizePostRequest({
+				oauth_request: encodeAuthRequest(sampleAuthRequest),
+				hevy_api_key: "some-key",
+			}),
+			{},
+			createFakeHelpers(),
+			createDependencies({
+				validateApiKey: vi.fn().mockRejectedValue(
+					new HevyHttpError("deadline", {
+						method: "GET",
+						endpoint: "/v1/user/info",
+						code: "HEVY_DEADLINE_EXCEEDED",
+						phase: "dispatch",
+						operationSafety: "read",
+						commitState: "not_sent",
+						safeToRetry: false,
+						outcome: "deadline_exceeded",
+					}),
+				),
+			}),
+		);
+		const result = await pending;
+		expect(result.status).toBe(504);
+		expect(result.headers.get("content-type")).toContain("text/html");
+		expect(await result.text()).toContain("Request deadline exceeded");
+	});
 });
 
 interface MemoryKVEntry {
@@ -325,26 +417,35 @@ function createMemoryKV() {
 	const store = new Map<string, MemoryKVEntry>();
 	return {
 		store,
-		async get(key: string, options?: { type?: string } | string) {
+		get(key: string, options?: { type?: string } | string) {
 			const entry = store.get(key);
-			if (!entry) return null;
+			if (!entry) return Promise.resolve(null);
 			const type = typeof options === "string" ? options : options?.type;
-			return type === "json" ? JSON.parse(entry.value) : entry.value;
+			if (type === "json") {
+				try {
+					return Promise.resolve(JSON.parse(entry.value));
+				} catch (error) {
+					return Promise.reject(error);
+				}
+			}
+			return Promise.resolve(entry.value);
 		},
-		async put(key: string, value: string) {
+		put(key: string, value: string) {
 			store.set(key, { value });
+			return Promise.resolve();
 		},
-		async delete(key: string) {
+		delete(key: string) {
 			store.delete(key);
+			return Promise.resolve();
 		},
-		async list(options?: { prefix?: string }) {
+		list(options?: { prefix?: string }) {
 			const prefix = options?.prefix ?? "";
-			return {
+			return Promise.resolve({
 				keys: [...store.keys()]
 					.filter((name) => name.startsWith(prefix))
 					.map((name) => ({ name })),
 				list_complete: true,
-			};
+			});
 		},
 	};
 }
@@ -369,7 +470,7 @@ const initializeBody = {
 	},
 };
 
-async function parseMcpResponse(response: Response) {
+async function parseMcpResponse(response: Response): Promise<unknown> {
 	const text = await response.text();
 	if (response.headers.get("content-type")?.includes("text/event-stream")) {
 		const data = text
@@ -377,9 +478,9 @@ async function parseMcpResponse(response: Response) {
 			.find((line) => line.startsWith("data: "))
 			?.slice(6);
 		if (!data) throw new Error(`Missing SSE data: ${text}`);
-		return JSON.parse(data) as Record<string, unknown>;
+		return JSON.parse(data);
 	}
-	return JSON.parse(text) as Record<string, unknown>;
+	return JSON.parse(text);
 }
 
 describe("OAuth-enabled Worker fetch handler", () => {
@@ -407,17 +508,14 @@ describe("OAuth-enabled Worker fetch handler", () => {
 			{},
 		);
 		expect(authServer.status).toBe(200);
-		const metadata = (await authServer.json()) as Record<string, unknown>;
-		expect(metadata.authorization_endpoint).toBe(
-			"https://worker.example/authorize",
-		);
-		expect(metadata.token_endpoint).toBe("https://worker.example/token");
-		expect(metadata.registration_endpoint).toBe(
-			"https://worker.example/register",
-		);
-		expect(metadata.scopes_supported).toEqual(["mcp"]);
-		expect(metadata.client_id_metadata_document_supported).toBe(true);
-		expect(metadata.code_challenge_methods_supported).toEqual(["S256"]);
+		expect(await authServer.json()).toMatchObject({
+			authorization_endpoint: "https://worker.example/authorize",
+			token_endpoint: "https://worker.example/token",
+			registration_endpoint: "https://worker.example/register",
+			scopes_supported: ["mcp"],
+			client_id_metadata_document_supported: true,
+			code_challenge_methods_supported: ["S256"],
+		});
 
 		const resource = await handler(
 			new Request(
@@ -427,8 +525,9 @@ describe("OAuth-enabled Worker fetch handler", () => {
 			{},
 		);
 		expect(resource.status).toBe(200);
-		const resourceMetadata = (await resource.json()) as Record<string, unknown>;
-		expect(resourceMetadata.resource).toBe("https://worker.example/mcp");
+		expect(await resource.json()).toMatchObject({
+			resource: "https://worker.example/mcp",
+		});
 	});
 
 	it("keeps discovery paths returning 404 without OAUTH_KV", async () => {
@@ -818,6 +917,66 @@ describe("OAuth-enabled Worker fetch handler", () => {
 		expect(rejected.status).toBe(401);
 	});
 
+	it("accepts Claude's published CIMD metadata with an optional JWT grant", async () => {
+		const clientId = "https://claude.ai/oauth/mcp-oauth-client-metadata";
+		const metadata = {
+			client_id: clientId,
+			client_name: "Claude",
+			client_uri: "https://claude.ai",
+			redirect_uris: [redirectUri],
+			grant_types: [
+				"authorization_code",
+				"refresh_token",
+				"urn:ietf:params:oauth:grant-type:jwt-bearer",
+			],
+			response_types: ["code"],
+			token_endpoint_auth_method: "none",
+		};
+		const fetchMock = vi.fn((_input: RequestInfo | URL) =>
+			Promise.resolve(Response.json(metadata)),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+		const { handler, env } = createHandlerWithEnv();
+		const verifier = base64UrlEncode(
+			crypto.getRandomValues(new Uint8Array(32)),
+		);
+		const challenge = base64UrlEncode(
+			new Uint8Array(
+				await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(verifier),
+				),
+			),
+		);
+		const authorizeUrl = new URL("https://worker.example/authorize");
+		authorizeUrl.searchParams.set("response_type", "code");
+		authorizeUrl.searchParams.set("client_id", clientId);
+		authorizeUrl.searchParams.set("redirect_uri", redirectUri);
+		authorizeUrl.searchParams.set("code_challenge", challenge);
+		authorizeUrl.searchParams.set("code_challenge_method", "S256");
+		authorizeUrl.searchParams.set("state", "claude-state");
+		authorizeUrl.searchParams.set("scope", "mcp");
+		authorizeUrl.searchParams.set("resource", "https://worker.example/mcp");
+
+		const result = await handler(new Request(authorizeUrl), env, {});
+
+		// Regression coverage for issue #942: provider 0.10.0 rejected
+		// Claude's optional JWT grant; 0.10.2 negotiates it away and renders
+		// the consent page.
+		expect(result.status).toBe(200);
+		expect(await result.text()).toContain("Claude");
+		expect(fetchMock).toHaveBeenCalled();
+		for (const [input] of fetchMock.mock.calls) {
+			const requestedUrl =
+				input instanceof Request
+					? input.url
+					: input instanceof URL
+						? input.href
+						: input;
+			expect(requestedUrl).toBe(clientId);
+		}
+	});
+
 	it("completes the CIMD OAuth flow and serves MCP requests", async () => {
 		const clientId = "https://chatgpt.com/oauth/hevy-mcp/client.json";
 		const cimdRedirectUri = "https://chatgpt.com/connector/oauth/test-callback";
@@ -827,7 +986,7 @@ describe("OAuth-enabled Worker fetch handler", () => {
 			redirect_uris: [cimdRedirectUri],
 			token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
 		};
-		const fetchMock = vi.fn(async () => Response.json(metadata));
+		const fetchMock = vi.fn(() => Promise.resolve(Response.json(metadata)));
 		vi.stubGlobal("fetch", fetchMock);
 		const { handler, env } = createHandlerWithEnv();
 
@@ -954,7 +1113,7 @@ describe("OAuth-enabled Worker fetch handler", () => {
 		const redirectUri = "https://chatgpt.com/connector/oauth/test-callback";
 		vi.stubGlobal(
 			"fetch",
-			vi.fn(async () => Response.json(metadata)),
+			vi.fn(() => Promise.resolve(Response.json(metadata))),
 		);
 		const { handler, env } = createHandlerWithEnv();
 		const authorizeUrl = new URL("https://worker.example/authorize");
