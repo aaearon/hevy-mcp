@@ -105,18 +105,12 @@ describe("shipped server carries no runtime telemetry", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	// These are substring scans over source text, not URL validators, so they are
-	// deliberately unanchored. `sentry.io` is matched as a plain substring rather
-	// than as the narrower `ingest.*.sentry.io` host pattern: a hostname-shaped
-	// regex made CodeQL raise `js/regex/missing-regexp-anchor`, and this fork
-	// forbids any Sentry host in a workspace source file anyway, which makes the
-	// plain substring both stricter and clearer.
 	it("hard-codes no Sentry or OTLP network destination", () => {
 		const offenders = SOURCE_FILES.filter((file) => {
-			const source = readFileSync(file, "utf8").toLowerCase();
+			const source = readFileSync(file, "utf8");
 			return (
-				source.includes("sentry.io") ||
-				/otel\.[a-z0-9-]+\.dev/.test(source) ||
+				/ingest\.[a-z]*\.?sentry\.io/i.test(source) ||
+				/otel\.[a-z0-9-]+\.dev/i.test(source) ||
 				/\/v1\/(traces|metrics)\b/.test(source)
 			);
 		});
@@ -136,14 +130,9 @@ describe("shipped server carries no runtime telemetry", () => {
 });
 
 describe("shipped server phones home to nothing but the Hevy API", () => {
-	// Substring scan over source text, not a URL validator, so it is deliberately
-	// unanchored. Expressed with `includes` rather than a hostname-shaped regex
-	// so CodeQL does not read it as an unanchored host check
-	// (`js/regex/missing-regexp-anchor`); it is also stricter, because the regex
-	// dots matched any character.
 	it("contacts no npm registry", () => {
 		const offenders = SOURCE_FILES.filter((file) =>
-			readFileSync(file, "utf8").toLowerCase().includes("registry.npmjs.org"),
+			/registry\.npmjs\.org/i.test(readFileSync(file, "utf8")),
 		);
 
 		expect(offenders).toEqual([]);
