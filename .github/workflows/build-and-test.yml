@@ -62,9 +62,32 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      # Lint only the commits authored on this branch. `--first-parent` keeps the
+      # walk from descending into merged-in ancestry, which matters in this fork:
+      # adopting an upstream `chrisdoc/hevy-mcp` release drags in hundreds of
+      # upstream commits whose messages are not Conventional Commits (squashed PR
+      # titles such as "Chrisdoc/deps update 2 (#907)") or breach
+      # `body-max-line-length`. That history is immutable here, so linting it can
+      # never go green. Coverage given up: a commit that reaches this branch only
+      # as the second parent of a merge is no longer linted. Commits authored
+      # directly on the branch, and the merge commits themselves, still are.
       - name: Verify commit messages
         if: github.event_name == 'pull_request' && matrix.node-version == '24.x'
-        run: npx commitlint --from ${{ github.event.pull_request.base.sha }} --to ${{ github.event.pull_request.head.sha }} --verbose
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          commits="$(git rev-list --first-parent "${BASE_SHA}..${HEAD_SHA}")"
+          if [ -z "${commits}" ]; then
+            echo "No branch-local commits to lint."
+            exit 0
+          fi
+          status=0
+          for sha in ${commits}; do
+            echo "--- ${sha}"
+            git log -1 --format=%B "${sha}" | npx commitlint --verbose || status=1
+          done
+          exit "${status}"
 
       - name: Check for changeset
         if: >-
