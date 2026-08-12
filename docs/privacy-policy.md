@@ -43,9 +43,9 @@ access. OAuth access tokens expire after seven days and refresh tokens expire
 after thirty days. Rotating the Hevy API key invalidates grants created with
 that key.
 
-Hosted activity spans containing `span.user.hash` or `span.cloudflare.colo` are
-retained for 30 days and are accessible only to repository maintainers and the
-on-call operator.
+Hosted activity spans containing `span.cloudflare.colo` are retained for 30 days
+and are accessible only to repository maintainers and the on-call operator. This
+fork emits no `span.user.hash`.
 
 The hosted Worker uses request-scoped in-memory caches and does not maintain a
 shared workout-data database. Cloudflare may process operational logs under
