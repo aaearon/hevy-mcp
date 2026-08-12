@@ -1,5 +1,109 @@
 # hevy-mcp
 
+## 7.0.0
+
+### Major Changes
+
+- [`dad8ca6`](https://github.com/chrisdoc/hevy-mcp/commit/dad8ca61964b88dabbb9ff320e280f8034c9c462) - Remove all runtime telemetry from the shipped server.
+  
+  The Node package no longer initializes Sentry or OpenTelemetry, no longer
+  bundles any `@sentry/*` or `@opentelemetry/*` dependency, and makes no
+  telemetry network requests. The pseudonymous HMAC-derived user identifier
+  is gone, and `createErrorResponse` no longer writes a structured
+  `mcp.tool.failure` event to stderr.
+  
+  **Breaking changes**
+  
+  - The `HEVY_MCP_TELEMETRY`, `SENTRY_DSN`, `SENTRY_RELEASE`, and
+    `OTEL_COLLECTOR_TOKEN` environment variables are no longer read and have
+    no effect. Telemetry is now permanently off, so `HEVY_MCP_TELEMETRY=0`
+    is unnecessary rather than broken.
+  - The Cloudflare Worker config no longer reads
+    `CLOUDFLARE_OTEL_TRACES_DESTINATIONS` or
+    `CLOUDFLARE_OTEL_LOGS_DESTINATIONS`.
+  
+  Observer seams in `@hevy-mcp/core` and `@hevy-mcp/hevy-client`
+  (`ToolObserver`, cache observers, `tool-taxonomy`, result-telemetry
+  helpers) are intentionally retained; the server is simply constructed
+  without an observer. Local `HEVY_MCP_DEBUG=1` diagnostics and stdin
+  parse-hardening behavior are unchanged.
+
+- [`a885ec1`](https://github.com/chrisdoc/hevy-mcp/commit/a885ec1165885a0006faf8f4b12106339c51069a) - Remove the npm registry update check, so the server contacts no host but the
+  Hevy API.
+  
+  Previously the Node package scheduled a background `GET
+  https://registry.npmjs.org/hevy-mcp` once per process start (cached for 24
+  hours) to print a stderr notice when a newer release was available. The request
+  was unauthenticated and carried no identifier, but it was on by default with no
+  way to disable it. It is now gone entirely: `scheduleUpdateCheck`,
+  `checkForUpdate`, and the whole `version-check` module have been deleted, along
+  with the now-unused `semver` dependency of the published package.
+  
+  Together with the telemetry removal, `api.hevyapp.com` is now the only host the
+  shipped server ever contacts.
+  
+  **Breaking changes**
+  
+  - No update notifications are printed. Check for new releases yourself (for
+    example with `npm outdated -g hevy-mcp`).
+  - `XDG_CACHE_HOME` no longer affects `hevy-mcp`; nothing is written to
+    `~/.cache/hevy-mcp/update-check.json` anymore. Any existing cache file is
+    orphaned and can be deleted.
+  - `semver` is no longer a dependency of the `hevy-mcp` package.
+  
+  `tests/unit/no-runtime-telemetry.test.ts` now scans every `packages/*/src` tree
+  (not just `packages/node/src`) and asserts that no npm-registry URL or update
+  check is reintroduced.
+
+### Minor Changes
+
+- [`43a8dfe`](https://github.com/chrisdoc/hevy-mcp/commit/43a8dfe0b81c826d9cebb800b6e230e5614680df) - Add the fork-specific `--transport http+oauth` mode: a password-gated OAuth 2.1
+  authorization server plus MCP resource server, so a self-hosted Node deployment
+  can be added to Claude as a remote Connector.
+  
+  - Dynamic client registration (RFC 7591), authorization code flow with
+    mandatory PKCE (S256), refresh-token rotation, revocation (RFC 7009), and
+    RFC 8414 / RFC 9728 discovery documents.
+  - Grants persist in SQLite (`OAUTH_DB_PATH`, default `./oauth.db`) so a restart
+    does not force clients to re-authorize.
+  - New settings: `MCP_ISSUER_URL` / `--issuer-url` (required) and
+    `MCP_AUTH_PASSWORD`, which fails closed when unset or empty.
+  - Reuses the existing Streamable HTTP server and its MCP session lifecycle via
+    new optional `HttpServerExtensions` hooks; `--transport stdio` and
+    `--transport http` behavior is unchanged.
+
+- Adopt upstream `chrisdoc/hevy-mcp@6.1.1`, with all runtime telemetry stripped.
+  
+  Upstream changes carried in:
+  
+  - New runtime-neutral `@hevy-mcp/operations` workspace holding shared Hevy
+    domain operations (workout list/retrieval, routine list/retrieval), consumed
+    by `@hevy-mcp/core`.
+  - Centralized Hevy endpoint policy, structured execution outcomes
+    (`outcome`/`phase`/`operation_safety`/`commit_state`/`safe_to_retry`) and
+    cancellation support in `@hevy-mcp/hevy-client` and `@hevy-mcp/core`.
+  - The Node package split into a side-effect-free embedding entry
+    (`createNodeMcpServer` in `src/index.ts`) and a lazily imported runtime
+    bootstrap (`src/runtime.ts`), plus a centralized process lifecycle.
+  - Bounded HTTP session admission for the local Streamable HTTP transport:
+    `HEVY_MCP_HTTP_MAX_SESSIONS`, `HEVY_MCP_HTTP_MAX_INITIALIZING`,
+    `HEVY_MCP_HTTP_IDLE_TIMEOUT_MS` and `HEVY_MCP_HTTP_BODY_TIMEOUT_MS`, with
+    idle eviction, per-session lifecycle abort, and `408`/`429`/`503` responses.
+  - Worker fixes for Claude CIMD metadata and stateless-request observation.
+  
+  Fork-specific deviations preserved and reapplied on the new layout:
+  
+  - No `@sentry/*` or `@opentelemetry/*` dependency, import, span, metric,
+    exporter or environment variable anywhere in the shipped packages, and no
+    npm registry update check. `api.hevyapp.com` remains the only host the
+    server contacts.
+  - The Worker no longer derives a pseudonymous HMAC user identity from the
+    caller's Hevy API key; only the Cloudflare colo is attached to activity
+    observation.
+  - The fork-only `http+oauth` Node transport keeps working: the OAuth
+    authorization-server routes and bearer gate plug into upstream's reworked
+    `startStreamableHttpServer` through the `HttpServerExtensions` hooks.
+
 ## 6.1.1
 
 ### Patch Changes
