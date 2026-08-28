@@ -8,6 +8,7 @@ import {
 	verifyBearerToken,
 	type OAuthClientInformationFull,
 } from "@modelcontextprotocol/server";
+import { z } from "zod";
 import {
 	CONSENT_HTML_HEADERS,
 	CONSENT_PATH,
@@ -46,6 +47,17 @@ export const PROTECTED_RESOURCE_METADATA_PATH =
 
 const MAX_OAUTH_BODY_BYTES = 64 * 1024;
 
+/**
+ * Matches the `isString` helper in `streamable-http.ts`: narrow a header or
+ * origin value at the I/O boundary via zod instead of a runtime `typeof`
+ * check. Concretely typed (not generic) so the oxlint type-aware checker
+ * narrows the post-guard type correctly.
+ */
+const stringSchema = z.string();
+function isString(value: string | string[] | undefined): value is string {
+	return stringSchema.safeParse(value).success;
+}
+
 /** Origins allowed to talk to the OAuth endpoints from a browser. */
 const ALLOWED_ORIGIN_HOSTS = new Set([
 	"claude.ai",
@@ -66,7 +78,7 @@ export function isAllowedCorsOrigin(origin: string | undefined): boolean {
 
 function applyCors(request: IncomingMessage, response: ServerResponse): void {
 	const origin = request.headers.origin;
-	if (typeof origin !== "string" || !isAllowedCorsOrigin(origin)) return;
+	if (!isString(origin) || !isAllowedCorsOrigin(origin)) return;
 	response.setHeader("Access-Control-Allow-Origin", origin);
 	response.setHeader("Vary", "Origin");
 	response.setHeader(
@@ -81,10 +93,10 @@ function applyCors(request: IncomingMessage, response: ServerResponse): void {
 	response.setHeader("Access-Control-Max-Age", "86400");
 }
 
-function sendJson(
+function sendJson<T>(
 	response: ServerResponse,
 	status: number,
-	payload: unknown,
+	payload: T,
 ): void {
 	if (response.headersSent) return;
 	const body = JSON.stringify(payload);
@@ -109,7 +121,7 @@ function sendHtml(
 	response.end(html);
 }
 
-function sendOAuthError(response: ServerResponse, error: unknown): void {
+function sendOAuthError<T>(response: ServerResponse, error: T): void {
 	if (OAuthError.isInstance(error)) {
 		const status =
 			error.code === OAuthErrorCode.InvalidClient
@@ -176,12 +188,8 @@ async function readJson(request: IncomingMessage): Promise<unknown> {
 function parseBasicAuth(
 	header: string | string[] | undefined,
 ): { clientId: string; clientSecret: string } | undefined {
-	if (
-		typeof header !== "string" ||
-		!header.toLowerCase().startsWith("basic ")
-	) {
-		return undefined;
-	}
+	if (!isString(header)) return undefined;
+	if (!header.toLowerCase().startsWith("basic ")) return undefined;
 	const decoded = Buffer.from(header.slice(6).trim(), "base64").toString(
 		"utf8",
 	);

@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 const CLOUDFLARE_COLO_PATTERN = /^[A-Z]{3}$/u;
 
 type RequestWithCloudflareProperties = Request & {
@@ -12,9 +14,11 @@ type RequestWithCloudflareProperties = Request & {
  */
 export function getCloudflareColo(request: Request): string | undefined {
 	try {
-		const colo = (request as RequestWithCloudflareProperties).cf?.colo;
-		return typeof colo === "string" && CLOUDFLARE_COLO_PATTERN.test(colo)
-			? colo
+		const parsedColo = z
+			.string()
+			.safeParse((request as RequestWithCloudflareProperties).cf?.colo).data;
+		return parsedColo !== undefined && CLOUDFLARE_COLO_PATTERN.test(parsedColo)
+			? parsedColo
 			: undefined;
 	} catch {
 		// Request metadata is optional and must never affect MCP behavior.

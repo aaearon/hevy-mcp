@@ -91,8 +91,8 @@ Try asking:
 
 ### 1. Get your Hevy API key
 
-Create an API key in Hevy, then keep it somewhere secure. API access currently
-requires a Hevy PRO subscription.
+Create an API key in [Hevy's API settings](https://www.hevyapp.com/api), then
+keep it somewhere secure. API access currently requires a Hevy PRO subscription.
 
 ### 2. Connect `hevy-mcp` to your client
 
@@ -344,30 +344,59 @@ These server-provided MCP prompts coordinate common multi-step workflows:
 and update tools are exposed with MCP mutation annotations so compatible clients
 can request confirmation.
 
-| Category           | Tool                        | Description                                                                       |
-| ------------------ | --------------------------- | --------------------------------------------------------------------------------- |
-| Training analysis  | `get-training-summary`      | Summarize 1-12 weeks of workout activity and body-measurement trends in one call. |
-| Workouts           | `get-workouts`              | List workouts from newest to oldest with exercise and timing details.             |
-| Workouts           | `get-workout`               | Get complete details for one workout by ID.                                       |
-| Workouts           | `get-workout-events`        | List workout update and delete events since a timestamp.                          |
-| Workouts           | `create-workout`            | Create a completed workout in Hevy.                                               |
-| Workouts           | `update-workout`            | Patch workout metadata by ID; omitted fields and all exercises remain unchanged.  |
-| Workouts           | `replace-workout-exercises` | Replace all exercises and sets while preserving workout metadata.                 |
-| Routines           | `search-routines`           | Search routine titles and return compact metadata for discovery.                  |
-| Routines           | `get-routines`              | List custom and default workout routines.                                         |
-| Routines           | `get-routine`               | Get one routine and its exercise configuration by ID.                             |
-| Routines           | `create-routine`            | Create a reusable workout routine.                                                |
-| Routines           | `update-routine`            | Replace an existing routine's content.                                            |
-| Routine folders    | `get-routine-folder`        | Get one routine folder's metadata by ID.                                          |
-| Routine folders    | `create-routine-folder`     | Create a routine folder.                                                          |
-| Exercise templates | `get-exercise-template`     | Get complete metadata for one exercise template by ID.                            |
-| Exercise templates | `search-exercise-templates` | Search the full exercise catalog by title substring.                              |
-| Exercise templates | `create-exercise-template`  | Create a custom exercise template.                                                |
-| Exercise history   | `get-exercise-history`      | Get past performed sets for one exercise template.                                |
-| Body measurements  | `get-body-measurements`     | List dated body measurements.                                                     |
-| Body measurements  | `get-body-measurement`      | Get the body measurement entry for one date.                                      |
-| Body measurements  | `create-body-measurement`   | Create a dated body measurement.                                                  |
-| Body measurements  | `update-body-measurement`   | Update the body measurement for an existing date.                                 |
+| Category           | Tool                        | Description                                                                                                            |
+| ------------------ | --------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Training analysis  | `get-training-summary`      | Summarize 1-12 weeks of workout activity and body-measurement trends in one call.                                      |
+| Workouts           | `get-workouts`              | List workouts in Hevy API order, not by start time, with exercise and timing details.                                  |
+| Workouts           | `get-workout`               | Get complete details for one workout by ID.                                                                            |
+| Workouts           | `get-workout-events`        | List workout update and delete events since a timestamp.                                                               |
+| Workouts           | `create-workout`            | Create a completed workout in Hevy.                                                                                    |
+| Workouts           | `update-workout`            | Patch workout metadata by ID; `is_private` is required, while other omitted fields and all exercises remain unchanged. |
+| Workouts           | `replace-workout-exercises` | Replace all exercises and sets; `is_private` is required and updated, while other workout metadata remains unchanged.  |
+| Routines           | `search-routines`           | Search routine titles and return compact metadata for discovery.                                                       |
+| Routines           | `get-routines`              | List custom and default workout routines.                                                                              |
+| Routines           | `get-routine`               | Get one routine and its exercise configuration by ID.                                                                  |
+| Routines           | `create-routine`            | Create a reusable workout routine.                                                                                     |
+| Routines           | `update-routine`            | Replace an existing routine's content.                                                                                 |
+| Routine folders    | `get-routine-folder`        | Get one routine folder's metadata by ID.                                                                               |
+| Routine folders    | `create-routine-folder`     | Create a routine folder.                                                                                               |
+| Exercise templates | `get-exercise-template`     | Get complete metadata for one exercise template by ID.                                                                 |
+| Exercise templates | `search-exercise-templates` | Search the full exercise catalog by title substring.                                                                   |
+| Exercise templates | `create-exercise-template`  | Create a custom exercise template.                                                                                     |
+| Exercise history   | `get-exercise-history`      | Get past performed sets for one exercise template.                                                                     |
+| Body measurements  | `get-body-measurements`     | List dated body measurements.                                                                                          |
+| Body measurements  | `get-body-measurement`      | Get the body measurement entry for one date.                                                                           |
+| Body measurements  | `create-body-measurement`   | Create a dated body measurement.                                                                                       |
+| Body measurements  | `update-body-measurement`   | Update the body measurement for an existing date.                                                                      |
+
+`create-routine` requires a top-level `routine` envelope with a required `exercises` array; fields use snake_case at every level:
+
+```json
+{
+	"routine": {
+		"title": "Full Body A",
+		"folder_id": 123,
+		"notes": "First four exercises are the minimum viable workout",
+		"exercises": [
+			{
+				"exercise_template_id": "30E293E3",
+				"superset_id": null,
+				"rest_seconds": 120,
+				"notes": "Controlled active ROM",
+				"sets": [
+					{
+						"type": "normal",
+						"rep_range": {
+							"start": 6,
+							"end": 10
+						}
+					}
+				]
+			}
+		]
+	}
+}
+```
 
 The Hevy API currently exposes no delete endpoints for workouts, routines,
 routine folders, exercise templates, or body measurements, so there are no
@@ -447,7 +476,7 @@ self-hosted Streamable HTTP.
 | Setting                          | Default        | Scope               | Notes                                                                                                                                                                                                              |
 | -------------------------------- | -------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `HEVY_API_KEY`                   | None; required | Local stdio or HTTP | Hevy API key from the Hevy app. Never pass it in a URL.                                                                                                                                                            |
-| `HEVY_MCP_API_TIMEOUT`           | `30000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 30 seconds.                                                                                                                                 |
+| `HEVY_MCP_API_TIMEOUT`           | `60000` ms     | Local stdio         | Positive Hevy API timeout in milliseconds. Invalid values fall back to 60 seconds.                                                                                                                                 |
 | `HEVY_MCP_DEBUG`                 | Disabled       | Local Node          | Set to exactly `1` for privacy-bounded diagnostics on stderr. Stdout remains reserved for MCP JSON-RPC.                                                                                                            |
 | `HEVY_MCP_HTTP_BEARER_TOKEN`     | None           | Non-loopback HTTP   | Required when `--host` is not loopback; use a separate token, never the Hevy API key.                                                                                                                              |
 | `HEVY_MCP_HTTP_MAX_SESSIONS`     | `100`          | Local HTTP          | Maximum established sessions (including sessions currently initializing); excess requests receive `429` and DELETE, disconnect, or idle eviction frees capacity. Invalid values use the default; capped at 10,000. |
@@ -510,8 +539,11 @@ server-scoped in-memory catalog cache:
   `npx -y hevy-mcp --version` in a terminal.
 - **Codex cannot see the server:** run `codex mcp list`, then start a new Codex
   session after confirming the `hevy` entry exists.
-- **Hosted authentication fails:** confirm the key is active, belongs to a Hevy
-  PRO account, and is sent as `Authorization: Bearer <HEVY_API_KEY>`.
+- **Hevy API returns 401:** the key is invalid, expired, revoked, or
+  misconfigured. Verify or create an active key at
+  [Hevy's API settings](https://www.hevyapp.com/api), then restart the client.
+- **Hosted authentication fails:** confirm the key belongs to a Hevy PRO
+  account and is sent as `Authorization: Bearer <HEVY_API_KEY>`.
 - **Local authentication fails:** confirm the key is active and available to the
   MCP child process as `HEVY_API_KEY`.
 - **Need diagnostics:** set `HEVY_MCP_DEBUG=1`. Diagnostic output goes to stderr

@@ -1,5 +1,10 @@
-import { randomUUID } from "node:crypto";
+import * as crypto from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { z } from "zod";
+interface McpSessionMessage {
+	readonly method?: string;
+	readonly params?: unknown;
+}
 
 export const MCP_SESSION_TERMINATION_CATEGORIES = [
 	"clean",
@@ -48,27 +53,52 @@ const UNKNOWN_METADATA = "unknown";
 const MAX_METADATA_LENGTH = 64;
 const SAFE_METADATA_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._+:/@-]{0,63}$/u;
 const contextStorage = new AsyncLocalStorage<McpSessionContext>();
+
+/** Hex-encode bytes without relying on Buffer typings that vary across @types/node releases. */
+function toHex(bytes: Uint8Array): string {
+	let hex = "";
+	for (const byte of bytes) hex += byte.toString(16).padStart(2, "0");
+	return hex;
+}
+
+function generateFallbackTelemetrySessionId(): string {
+	return `${Date.now().toString(36)}-${toHex(crypto.randomBytes(16))}`;
+}
+
+const parsedRandomUUID = z
+	.function()
+	.output(z.string())
+	.safeParse(crypto.randomUUID);
+
+function generateTelemetrySessionId(): string {
+	return parsedRandomUUID.success
+		? parsedRandomUUID.data()
+		: generateFallbackTelemetrySessionId();
+}
 // Stdio has one process-wide connection and its parser callbacks are not
 // attached to an AsyncLocalStorage scope. HTTP never uses this fallback: every
 // request is explicitly run with its own session context.
 let activeStdioSession: McpSessionContext | undefined;
 
 type InitializeParams = {
-	clientInfo?: unknown;
-	protocolVersion?: unknown;
+	clientInfo?: ClientInfo;
+	protocolVersion?: string;
 };
 type ClientInfo = {
-	name?: unknown;
-	version?: unknown;
+	name?: string;
+	version?: string;
 };
 
-function isObject(value: unknown): value is object {
-	return value !== null && typeof value === "object" && !Array.isArray(value);
+function isObject(
+	value: McpSessionMessage | null | undefined,
+): value is McpSessionMessage {
+	return z.object({}).passthrough().safeParse(value).success;
 }
 
-function normalizeMetadata(value: unknown): string {
-	if (typeof value !== "string") return UNKNOWN_METADATA;
-	const normalized = value.trim();
+function normalizeMetadata(value: string | undefined): string {
+	const parsed = z.string().safeParse(value);
+	if (!parsed.success) return UNKNOWN_METADATA;
+	const normalized = parsed.data.trim();
 	if (
 		normalized.length === 0 ||
 		normalized.length > MAX_METADATA_LENGTH ||
@@ -79,18 +109,26 @@ function normalizeMetadata(value: unknown): string {
 	return normalized;
 }
 
-function getInitializeParams(message: unknown): InitializeParams {
+function getInitializeParams(message: McpSessionMessage): InitializeParams {
 	if (!isObject(message) || !("method" in message)) return {};
 	if (message.method !== "initialize") return {};
 	const params = "params" in message ? message.params : undefined;
-	return isObject(params) ? (params as InitializeParams) : {};
+	const parsed = z
+		.object({
+			clientInfo: z
+				.object({ name: z.string().optional(), version: z.string().optional() })
+				.optional(),
+			protocolVersion: z.string().optional(),
+		})
+		.safeParse(params);
+	return parsed.success ? parsed.data : {};
 }
 
-export function extractMcpClientMetadata(message: unknown): McpClientMetadata {
+export function extractMcpClientMetadata(
+	message: McpSessionMessage,
+): McpClientMetadata {
 	const params = getInitializeParams(message);
-	const clientInfo = isObject(params.clientInfo)
-		? (params.clientInfo as ClientInfo)
-		: {};
+	const clientInfo = params.clientInfo ?? {};
 	return {
 		name: normalizeMetadata(clientInfo.name),
 		version: normalizeMetadata(clientInfo.version),
@@ -99,14 +137,23 @@ export function extractMcpClientMetadata(message: unknown): McpClientMetadata {
 }
 
 export function createMcpSessionContext(
-	message: unknown,
+	message: McpSessionMessage,
 	transport: McpTransport = "stdio",
 	options: McpSessionContextOptions | (() => string) = {},
 ): McpSessionContext {
-	const normalizedOptions =
-		typeof options === "function"
-			? { generateTelemetrySessionId: options }
-			: options;
+	const parsedFunction = z.function().output(z.string()).safeParse(options);
+	const normalizedOptions: McpSessionContextOptions = parsedFunction.success
+		? { generateTelemetrySessionId: parsedFunction.data }
+		: z
+				.object({
+					telemetrySessionId: z.string().optional(),
+					generateTelemetrySessionId: z
+						.function()
+						.output(z.string())
+						.optional(),
+					now: z.function().output(z.number()).optional(),
+				})
+				.parse(options);
 	return {
 		metadata: extractMcpClientMetadata(message),
 		startedAt: (normalizedOptions.now ?? Date.now)(),
@@ -115,7 +162,10 @@ export function createMcpSessionContext(
 		transport,
 		telemetrySessionId:
 			normalizedOptions.telemetrySessionId ??
-			(normalizedOptions.generateTelemetrySessionId ?? randomUUID)(),
+			(
+				normalizedOptions.generateTelemetrySessionId ??
+				generateTelemetrySessionId
+			)(),
 	};
 }
 
@@ -148,7 +198,7 @@ function metadataAttributes(
 }
 
 export function recordMcpSessionStart(
-	message: unknown,
+	message: McpSessionMessage,
 	transport: McpTransport = "stdio",
 	context?: McpSessionContext,
 ): McpClientMetadata {

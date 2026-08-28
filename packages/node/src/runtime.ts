@@ -22,6 +22,19 @@ import {
 	runNodeLifecycle,
 } from "./utils/node-lifecycle.js";
 
+const objectSchema = z.object({}).passthrough();
+const stringSchema = z.string();
+const numberSchema = z.number();
+
+function isObject<T>(value: T): value is T & object {
+	return objectSchema.safeParse(value).success;
+}
+function isString<T>(value: T): value is T & string {
+	return stringSchema.safeParse(value).success;
+}
+function isNumber<T>(value: T): value is T & number {
+	return numberSchema.safeParse(value).success;
+}
 const name = serviceName;
 const version = serviceVersion;
 
@@ -88,21 +101,31 @@ const serverConfigSchema = z.object({
 		.min(1, "Hevy API key is required")
 		.describe("Your Hevy API key (available in the Hevy app settings)."),
 });
+const validationErrorDetailsSchema = z.object({
+	response: z.object({ status: z.number().optional() }).optional(),
+	code: z.string().optional(),
+});
+const validationErrorSchema = z.union([
+	z.instanceof(Error),
+	z.string(),
+	validationErrorDetailsSchema,
+]);
+type ValidationError = z.infer<typeof validationErrorSchema>;
 
-function getHttpStatus(error: unknown): number | undefined {
+function getHttpStatus(error: ValidationError): number | undefined {
 	if (isHevyHttpError(error)) {
 		return error.status;
 	}
-	if (!error || typeof error !== "object" || !("response" in error)) {
+	if (!error || !isObject(error) || !("response" in error)) {
 		return undefined;
 	}
 
 	const response = error.response;
-	if (!response || typeof response !== "object" || !("status" in response)) {
+	if (!response || !isObject(response) || !("status" in response)) {
 		return undefined;
 	}
 
-	return typeof response.status === "number" &&
+	return isNumber(response.status) &&
 		Number.isInteger(response.status) &&
 		response.status >= 100 &&
 		response.status <= 599
@@ -110,18 +133,20 @@ function getHttpStatus(error: unknown): number | undefined {
 		: undefined;
 }
 
-function getSafeValidationDiagnostic(error: unknown): string | undefined {
+function getSafeValidationDiagnostic(
+	error: ValidationError,
+): string | undefined {
 	const status = getHttpStatus(error);
 	if (status !== undefined) {
 		return `HTTP ${status}`;
 	}
 
-	if (!error || typeof error !== "object" || !("code" in error)) {
+	if (!error || !isObject(error) || !("code" in error)) {
 		return undefined;
 	}
 
 	const code = error.code;
-	return typeof code === "string" && SAFE_NETWORK_ERROR_CODES.has(code)
+	return isString(code) && SAFE_NETWORK_ERROR_CODES.has(code)
 		? code
 		: undefined;
 }
@@ -141,7 +166,13 @@ async function validateApiKey(apiKey: string, signal?: AbortSignal) {
 			signal,
 			deadline: Date.now() + STARTUP_PROBE_TIMEOUT_MS,
 		});
-	} catch (error) {
+	} catch (caughtError) {
+		const parsedError = validationErrorSchema.safeParse(caughtError);
+		const error: ValidationError = isHevyHttpError(caughtError)
+			? caughtError
+			: parsedError.success
+				? parsedError.data
+				: String(caughtError);
 		if (signal?.aborted) throw error;
 		const status = getHttpStatus(error);
 		if (status === 401 || status === 403) {

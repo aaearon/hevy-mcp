@@ -1,8 +1,15 @@
 import type { Span } from "@cloudflare/workers-types";
+import { z } from "zod";
 import * as cloudflareWorkers from "cloudflare:workers";
+import { HEVY_ENDPOINT_TEMPLATES } from "@hevy-mcp/hevy-client";
 import {
 	createExecutionProjection,
 	createSafeErrorDiagnostic,
+	SAFE_ERROR_CATEGORIES,
+	SAFE_ERROR_CODES,
+	SAFE_HTTP_METHODS,
+	SAFE_STACK_SOURCES,
+	TELEMETRY_ARGUMENT_KEYS,
 	type SafeToolCompletion,
 	type SafeToolInvocation,
 	type StructuredExecutionProjection,
@@ -17,28 +24,9 @@ const MAX_STRING_LENGTH = 160;
 const MAX_ARGUMENT_KEYS = 32;
 const MAX_WORKFLOW_PAGES = 10_000;
 const MAX_WORKFLOW_ITEMS = 1_000_000;
-const SAFE_USER_HASH_PATTERN = /^[0-9a-f]{10}$/u;
 const SAFE_CLOUDFLARE_COLO_PATTERN = /^[A-Z]{3}$/u;
 
-const SAFE_ARGUMENT_KEYS = new Set([
-	"date",
-	"end_date",
-	"exercise_template_id",
-	"folder_id",
-	"include_custom",
-	"limit",
-	"offset",
-	"page",
-	"page_size",
-	"primary_muscle_group",
-	"query",
-	"refresh",
-	"routine_id",
-	"since",
-	"start_date",
-	"updated_since",
-	"workout_id",
-]);
+const SAFE_ARGUMENT_KEYS = new Set<string>(TELEMETRY_ARGUMENT_KEYS);
 const SAFE_COUNT_BUCKETS = new Set(["0", "1", "2-10", "11-50", "51+"]);
 const SAFE_WORKFLOW_NAMES = new Set(["training-summary", "routine-discovery"]);
 const SAFE_CACHE_STATUSES = new Set(["hit", "miss", "not-used"]);
@@ -50,59 +38,7 @@ const SAFE_ERROR_TYPES = new Set([
 	"NETWORK_ERROR",
 	"UNKNOWN_ERROR",
 ]);
-const SAFE_ERROR_CATEGORIES = new Set([
-	"AggregateError",
-	"DOMException",
-	"Error",
-	"EvalError",
-	"HevyHttpError",
-	"RangeError",
-	"ReferenceError",
-	"SyntaxError",
-	"TypeError",
-	"URIError",
-	"UnknownError",
-]);
-const SAFE_ERROR_CODES = new Set([
-	"EAI_AGAIN",
-	"ECONNABORTED",
-	"ECONNREFUSED",
-	"ECONNRESET",
-	"ENETUNREACH",
-	"ENOTFOUND",
-	"ERR_NETWORK",
-	"ERR_SOCKET_TIMEOUT",
-	"ETIMEDOUT",
-	"HEVY_INVALID_ENDPOINT",
-	"HEVY_REQUEST_ABORTED",
-	"HEVY_RETRY_EXHAUSTED",
-	"HEVY_DEADLINE_EXCEEDED",
-]);
-const SAFE_HTTP_METHODS = new Set([
-	"DELETE",
-	"GET",
-	"HEAD",
-	"OPTIONS",
-	"PATCH",
-	"POST",
-	"PUT",
-]);
-const SAFE_ENDPOINTS = new Set([
-	"/v1/body_measurements",
-	"/v1/body_measurements/:date",
-	"/v1/exercise_history/:exerciseTemplateId",
-	"/v1/exercise_templates",
-	"/v1/exercise_templates/:exerciseTemplateId",
-	"/v1/routine_folders",
-	"/v1/routine_folders/:folderId",
-	"/v1/routines",
-	"/v1/routines/:routineId",
-	"/v1/user/info",
-	"/v1/workouts",
-	"/v1/workouts/:workoutId",
-	"/v1/workouts/count",
-	"/v1/workouts/events",
-]);
+const SAFE_ENDPOINTS = new Set<string>(HEVY_ENDPOINT_TEMPLATES);
 const SAFE_EXECUTION_OUTCOMES = new Set([
 	"success",
 	"expected",
@@ -125,13 +61,6 @@ const SAFE_OPERATION_SAFETY = new Set([
 	"non-idempotent-write",
 ]);
 const SAFE_COMMIT_STATES = new Set(["not_sent", "confirmed", "unknown"]);
-const SAFE_STACK_SOURCES = new Set([
-	"error-handler",
-	"hevy-client",
-	"index",
-	"server",
-	"worker",
-]);
 
 /** Structured events emitted by the Worker adapter's private observation sink. */
 export interface WorkerObservationEvent {
@@ -175,6 +104,16 @@ interface SafeResultSummary {
 	};
 }
 
+type Mutable<T> = { -readonly [K in keyof T]: T[K] };
+type SafeInvocationProjection = Mutable<Omit<WorkerObservationEvent, "event">>;
+type SafeResultSummaryProjection = Mutable<SafeResultSummary>;
+type WorkerResultProjection = Mutable<WorkerResultObservation>;
+type MutableWorkerObservationEvent = Mutable<WorkerObservationEvent>;
+
+interface WorkerSpanAttributes {
+	[key: string]: string | number | boolean;
+}
+
 export type WorkerObservationSink = (
 	event: WorkerObservationEvent,
 ) => void | Promise<void>;
@@ -186,44 +125,49 @@ export interface WorkerTracing {
 export interface WorkerToolObserverOptions {
 	/** Defaults to console.log; test callers can provide an isolated sink. */
 	readonly sink?: WorkerObservationSink;
-	/**
-	 * Inert seam kept for upstream merge parity. This fork never derives a
-	 * pseudonymous identity from the caller's Hevy API key, so nothing supplies
-	 * this value; see the "No Telemetry, No Phone-Home" section of AGENTS.md.
-	 */
-	readonly userHash?: string;
 	/** Cloudflare's three-letter edge colo, when the request has one. */
 	readonly cloudflareColo?: string;
 	/** Injectable for unit tests; production uses Cloudflare's tracing API when available. */
 	readonly tracing?: WorkerTracing;
 }
 
+type SafeScalar = string | number | boolean | null | undefined;
+
+const safeStringSchema = z.string();
+const safeNumberSchema = z.number();
+const safeBooleanSchema = z.boolean();
+const safeObjectSchema = z.object({}).passthrough();
+
+const isSafeString = (value: SafeScalar): value is string =>
+	safeStringSchema.safeParse(value).success;
+const isSafeNumber = (value: SafeScalar): value is number =>
+	safeNumberSchema.safeParse(value).success;
+const isSafeBoolean = (value: SafeScalar): value is boolean =>
+	safeBooleanSchema.safeParse(value).success;
+function isSafeObject<T>(value: T): value is T & object {
+	return safeObjectSchema.safeParse(value).success;
+}
+
 function boundedString(
-	value: unknown,
+	value: SafeScalar,
 	maxLength = MAX_STRING_LENGTH,
 ): string | undefined {
-	if (typeof value !== "string" || value.length === 0) return undefined;
+	if (!isSafeString(value) || value.length === 0) return undefined;
 	return value.slice(0, maxLength);
 }
 
-function safeName(value: unknown): string {
+function safeName(value: SafeScalar): string {
 	return boundedString(value, MAX_NAME_LENGTH) ?? "unknown";
 }
 
-function safeUserHash(value: unknown): string | undefined {
-	return typeof value === "string" && SAFE_USER_HASH_PATTERN.test(value)
+function safeCloudflareColo(value: SafeScalar): string | undefined {
+	return isSafeString(value) && SAFE_CLOUDFLARE_COLO_PATTERN.test(value)
 		? value
 		: undefined;
 }
 
-function safeCloudflareColo(value: unknown): string | undefined {
-	return typeof value === "string" && SAFE_CLOUDFLARE_COLO_PATTERN.test(value)
-		? value
-		: undefined;
-}
-
-function safeBucket(value: unknown): string | undefined {
-	return typeof value === "string" && SAFE_COUNT_BUCKETS.has(value)
+function safeBucket(value: SafeScalar): string | undefined {
+	return isSafeString(value) && SAFE_COUNT_BUCKETS.has(value)
 		? value
 		: undefined;
 }
@@ -263,27 +207,30 @@ function safeInvocation(
 	for (const [key, value] of Object.entries(
 		invocation.booleanArguments ?? {},
 	)) {
-		if (SAFE_ARGUMENT_KEYS.has(key) && typeof value === "boolean") {
+		if (SAFE_ARGUMENT_KEYS.has(key) && isSafeBoolean(value)) {
 			booleanArguments[key] = value;
 		}
 	}
 	const keyCountBucket = safeBucket(invocation.argumentKeyCountBucket);
-	return {
+	const safe: SafeInvocationProjection = {
 		name: safeName(invocation.name),
 		kind: invocation.kind === "prompt" ? "prompt" : "tool",
-		...(safeTaxonomy(invocation) ? { taxonomy: safeTaxonomy(invocation) } : {}),
-		...(argumentKeys.length ? { argumentKeys } : {}),
-		...(Object.keys(argumentPresence).length ? { argumentPresence } : {}),
-		...(Object.keys(numericArgumentBuckets).length
-			? { numericArgumentBuckets }
-			: {}),
-		...(Object.keys(booleanArguments).length ? { booleanArguments } : {}),
-		...(keyCountBucket ? { argumentKeyCountBucket: keyCountBucket } : {}),
 	};
+	const taxonomy = safeTaxonomy(invocation);
+	if (taxonomy) safe.taxonomy = taxonomy;
+	if (argumentKeys.length) safe.argumentKeys = argumentKeys;
+	if (Object.keys(argumentPresence).length)
+		safe.argumentPresence = argumentPresence;
+	if (Object.keys(numericArgumentBuckets).length)
+		safe.numericArgumentBuckets = numericArgumentBuckets;
+	if (Object.keys(booleanArguments).length)
+		safe.booleanArguments = booleanArguments;
+	if (keyCountBucket) safe.argumentKeyCountBucket = keyCountBucket;
+	return safe;
 }
 
-function boundedCount(value: unknown, maximum: number): number {
-	if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+function boundedCount(value: SafeScalar, maximum: number): number {
+	if (!isSafeNumber(value) || !Number.isFinite(value)) return 0;
 	return Math.min(maximum, Math.max(0, Math.floor(value)));
 }
 
@@ -324,39 +271,39 @@ function safeSummary(
 	) {
 		return undefined;
 	}
-	return {
-		...(itemCountBucket ? { itemCountBucket } : {}),
-		...(exerciseCountBucket ? { exerciseCountBucket } : {}),
-		...(setCountBucket ? { setCountBucket } : {}),
-		...(safeWorkflow ? { workflow: safeWorkflow } : {}),
-	};
+	const safe: SafeResultSummaryProjection = {};
+	if (itemCountBucket) safe.itemCountBucket = itemCountBucket;
+	if (exerciseCountBucket) safe.exerciseCountBucket = exerciseCountBucket;
+	if (setCountBucket) safe.setCountBucket = setCountBucket;
+	if (safeWorkflow) safe.workflow = safeWorkflow;
+	return safe;
 }
 
 function safeResult(
 	result: ToolResultObservation | undefined,
 ): WorkerResultObservation | undefined {
 	if (!result) return undefined;
-	return {
+	const safe: WorkerResultProjection = {
 		isError: result.isError === true,
 		hasStructuredContent: result.hasStructuredContent === true,
 		contentCountBucket: safeBucket(result.contentCountBucket) ?? "0",
-		...(safeSummary(result.summary)
-			? { summary: safeSummary(result.summary) }
-			: {}),
 	};
+	const summary = safeSummary(result.summary);
+	if (summary) safe.summary = summary;
+	return safe;
 }
 
 type SafeErrorOutput = ReturnType<typeof createSafeErrorDiagnostic>;
 
-function safeErrorStatus(value: unknown): number | undefined {
-	if (typeof value !== "number") return undefined;
+function safeErrorStatus(value: SafeScalar): number | undefined {
+	if (!isSafeNumber(value)) return undefined;
 	return Number.isInteger(value) && value >= 100 && value <= 599
 		? value
 		: undefined;
 }
 
-function safeErrorMethod(value: unknown): string | undefined {
-	if (typeof value !== "string") return undefined;
+function safeErrorMethod(value: SafeScalar): string | undefined {
+	if (!isSafeString(value)) return undefined;
 	const method = value.toUpperCase();
 	return SAFE_HTTP_METHODS.has(method) ? method : undefined;
 }
@@ -376,14 +323,14 @@ function safeErrorFrames(
 		.slice(0, 3);
 }
 
-function safeErrorBoolean(value: unknown): boolean | undefined {
-	return typeof value === "boolean" ? value : undefined;
+function safeErrorBoolean(value: SafeScalar): boolean | undefined {
+	return isSafeBoolean(value) ? value : undefined;
 }
 
 function safeError(
 	error: ReturnType<typeof createSafeErrorDiagnostic> | undefined,
 ): ReturnType<typeof createSafeErrorDiagnostic> | undefined {
-	if (!error || typeof error !== "object") return undefined;
+	if (!error || !isSafeObject(error)) return undefined;
 	const category =
 		allowedValue<SafeErrorOutput["category"]>(
 			error.category,
@@ -438,12 +385,10 @@ type SafeExecutionSource = Partial<
 >;
 
 function allowedValue<T extends string>(
-	value: unknown,
+	value: SafeScalar,
 	allowed: ReadonlySet<string>,
 ): T | undefined {
-	return typeof value === "string" && allowed.has(value)
-		? (value as T)
-		: undefined;
+	return isSafeString(value) && allowed.has(value) ? (value as T) : undefined;
 }
 
 function safeExecution(
@@ -458,16 +403,15 @@ function safeExecution(
 			SAFE_OPERATION_SAFETY,
 		),
 		commit_state: allowedValue(source.commit_state, SAFE_COMMIT_STATES),
-		safe_to_retry:
-			typeof source.safe_to_retry === "boolean"
-				? source.safe_to_retry
-				: undefined,
+		safe_to_retry: isSafeBoolean(source.safe_to_retry)
+			? source.safe_to_retry
+			: undefined,
 		code:
-			typeof source.code === "string" && SAFE_ERROR_CODES.has(source.code)
+			isSafeString(source.code) && SAFE_ERROR_CODES.has(source.code)
 				? source.code
 				: undefined,
 		status:
-			typeof source.status === "number" &&
+			isSafeNumber(source.status) &&
 			Number.isInteger(source.status) &&
 			source.status >= 100 &&
 			source.status <= 599
@@ -529,7 +473,6 @@ export function createWorkerToolObserver(
 		options.sink ?? ((event: WorkerObservationEvent) => console.log(event));
 	const workerTracing: WorkerTracing | undefined =
 		options.tracing ?? cloudflareWorkers.tracing;
-	const userHash = safeUserHash(options.userHash);
 	const cloudflareColo = safeCloudflareColo(options.cloudflareColo);
 	return {
 		start(invocation): ToolObservationScope {
@@ -553,17 +496,22 @@ export function createWorkerToolObserver(
 							(span) => {
 								callbackEntered = true;
 								activeSpan = span;
-								setSpanAttributes(span, {
+								const spanAttributes: WorkerSpanAttributes = {
 									"mcp.span.category": safe.kind,
 									"mcp.operation.kind": safe.kind,
 									[safe.kind === "prompt"
 										? "mcp.prompt.name"
 										: "mcp.tool.name"]: safe.name,
-									...(userHash ? { "user.hash": userHash } : {}),
-									...(cloudflareColo
-										? { "cloudflare.colo": cloudflareColo }
-										: {}),
-								});
+								};
+								if (safe.taxonomy) {
+									spanAttributes["hevy.feature"] = safe.taxonomy.feature;
+									spanAttributes["mcp.tool.kind"] = safe.taxonomy.kind;
+									spanAttributes["mcp.tool.operation"] =
+										safe.taxonomy.operation;
+								}
+								if (cloudflareColo)
+									spanAttributes["cloudflare.colo"] = cloudflareColo;
+								setSpanAttributes(span, spanAttributes);
 								return operation();
 							},
 						);
@@ -592,18 +540,21 @@ export function createWorkerToolObserver(
 							? safeExecution(completion.errorOutcome)
 							: safeExecution(error);
 						const result = safeResult(completion.result);
-						emitBestEffort(sink, {
+						const event: MutableWorkerObservationEvent = {
 							event: "worker.tool.completion",
 							...safe,
 							outcome: completion.outcome,
 							durationMs,
-							...(result ? { result } : {}),
-							...(SAFE_ERROR_TYPES.has(completion.errorType ?? "")
-								? { errorType: completion.errorType }
-								: {}),
-							...(error ? { error } : {}),
-							...(execution ? { execution } : {}),
-						});
+						};
+						if (result) event.result = result;
+						if (
+							SAFE_ERROR_TYPES.has(completion.errorType ?? "") &&
+							completion.errorType
+						)
+							event.errorType = completion.errorType;
+						if (error) event.error = error;
+						if (execution) event.execution = execution;
+						emitBestEffort(sink, event);
 					} catch {
 						// Observation projection is best effort and must not affect MCP behavior.
 					}

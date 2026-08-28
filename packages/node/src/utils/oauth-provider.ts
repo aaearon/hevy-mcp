@@ -232,7 +232,7 @@ export class SqliteOAuthProvider implements OAuthTokenVerifier {
 		return JSON.parse(row.data_json) as OAuthClientInformationFull;
 	}
 
-	registerClient(metadata: unknown): OAuthClientInformationFull {
+	registerClient<T>(metadata: T): OAuthClientInformationFull {
 		const parsed = clientMetadataSchema.safeParse(metadata);
 		if (!parsed.success) {
 			throw new OAuthError(

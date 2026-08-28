@@ -148,7 +148,7 @@ describe("response contracts", () => {
 	it("supports JSON-only and text-only contracts", () => {
 		expect(
 			respond(
-				defineJsonResponseContract((value: unknown) => ({ json: value })),
+				defineJsonResponseContract<undefined>(() => ({ json: null })),
 				undefined,
 			),
 		).toEqual({ content: [{ type: "text", text: "null" }] });

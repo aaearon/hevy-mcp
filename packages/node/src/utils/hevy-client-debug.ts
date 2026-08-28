@@ -6,16 +6,24 @@ import type {
 import { bucketCount } from "@hevy-mcp/core";
 import { debugLog } from "./debug.js";
 
-function safeErrorAttributes(observation: HevyRequestObservation): {
+/** Named contract so the return type is a resolvable owner type, not an anonymous object literal. */
+type SafeErrorAttributes = {
 	error_category?: string;
 	error_code?: string;
-} {
+};
+
+function safeErrorAttributes(
+	observation: HevyRequestObservation,
+): SafeErrorAttributes {
 	if (!observation.error) return {};
 	const code = observation.error.code;
-	return {
+	const attributes: SafeErrorAttributes = {
 		error_category: observation.error.category ?? "HevyHttpError",
-		...(code && SAFE_OBSERVATION_CODES.has(code) ? { error_code: code } : {}),
 	};
+	if (code && SAFE_OBSERVATION_CODES.has(code)) {
+		attributes.error_code = code;
+	}
+	return attributes;
 }
 
 /**

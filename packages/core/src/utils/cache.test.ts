@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createSafeErrorDiagnostic } from "./safe-error-diagnostic.js";
+import { createSafeErrorDiagnostic } from "./error-policy.js";
 import { AsyncTtlCache } from "./cache.js";
 
 describe("AsyncTtlCache", () => {
@@ -192,7 +192,7 @@ describe("AsyncTtlCache", () => {
 			},
 		);
 		controller.abort(new DOMException("caller cancelled", "AbortError"));
-		const error = await second.catch((reason: unknown) => reason);
+		const error = await second.catch((reason: Error | string) => reason);
 		expect(createSafeErrorDiagnostic(error)).toMatchObject({
 			outcome: "cancelled",
 			commit_state: "unknown",

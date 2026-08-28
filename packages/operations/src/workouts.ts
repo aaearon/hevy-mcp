@@ -1,7 +1,6 @@
 import type {
 	HevyClient,
 	HevyExecutionOptions,
-	HevyHttpError,
 	HevyOperationSafety,
 } from "@hevy-mcp/hevy-client";
 import type { GetV1Workouts200, Workout } from "@hevy-mcp/hevy-client/types";
@@ -72,7 +71,9 @@ export interface WorkoutsListOperation {
 	): Promise<WorkoutsListOutput>;
 }
 
-function isExpectedWorkoutNotFound(error: unknown): boolean {
+type ErrorInput = Error | string;
+
+function isExpectedWorkoutNotFound(error: ErrorInput): boolean {
 	return (
 		isHevyHttpError(error) &&
 		canonicalEndpointIdentity(error.endpoint) === "/v1/workouts/:workoutId" &&
@@ -81,11 +82,7 @@ function isExpectedWorkoutNotFound(error: unknown): boolean {
 	);
 }
 
-export function isWorkoutsGetNotFound(error: unknown): error is HevyHttpError {
-	return isExpectedWorkoutNotFound(error);
-}
-
-function isExpectedEndOfList(error: unknown, page: number): boolean {
+function isExpectedEndOfList(error: ErrorInput, page: number): boolean {
 	return (
 		page > 1 &&
 		isHevyHttpError(error) &&
@@ -124,7 +121,11 @@ export function createWorkoutsGetOperation(
 						: await adapter.getWorkout(input.workoutId, options);
 				return { workout: response ?? null };
 			} catch (error) {
-				if (isWorkoutsGetNotFound(error)) {
+				if (
+					isExpectedWorkoutNotFound(
+						error instanceof Error ? error : String(error),
+					)
+				) {
 					return {
 						workout: null,
 						expected404Outcome: "not_found",
@@ -150,7 +151,12 @@ export function createWorkoutsListOperation(
 						: await adapter.getWorkouts(params, options);
 				return normalizeWorkoutsPage(response, input);
 			} catch (error) {
-				if (isExpectedEndOfList(error, input.page)) {
+				if (
+					isExpectedEndOfList(
+						error instanceof Error ? error : String(error),
+						input.page,
+					)
+				) {
 					return {
 						items: [],
 						page: input.page,
@@ -162,11 +168,4 @@ export function createWorkoutsListOperation(
 			}
 		},
 	};
-}
-
-export function isWorkoutsListEndOfList(
-	error: unknown,
-	page: number,
-): error is HevyHttpError {
-	return isExpectedEndOfList(error, page);
 }

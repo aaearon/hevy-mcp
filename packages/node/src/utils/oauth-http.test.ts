@@ -1,10 +1,12 @@
 import { randomBytes } from "node:crypto";
 import { mkdtempSync, rmSync } from "node:fs";
 import { request } from "node:http";
+import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { McpServer } from "@modelcontextprotocol/server";
 import { afterEach, describe, expect, it } from "vitest";
+import { z } from "zod";
 import { createOAuthHttpExtensions } from "./oauth-http.js";
 import { SqliteOAuthProvider, deriveS256Challenge } from "./oauth-provider.js";
 import { startStreamableHttpServer } from "./streamable-http.js";
@@ -12,6 +14,12 @@ import { startStreamableHttpServer } from "./streamable-http.js";
 const handles: Array<{ close(): Promise<void> }> = [];
 const providers: SqliteOAuthProvider[] = [];
 const directories: string[] = [];
+
+/** Matches the `isString` helper in `streamable-http.test.ts`. */
+const stringSchema = z.string();
+function isString(value: string | AddressInfo | null): value is string {
+	return stringSchema.safeParse(value).success;
+}
 
 afterEach(async () => {
 	await Promise.all(handles.splice(0).map((handle) => handle.close()));
@@ -113,7 +121,7 @@ async function startServer(password: string | undefined) {
 	);
 	handles.push(handle);
 	const address = handle.server.address();
-	const port = address && typeof address !== "string" ? address.port : 0;
+	const port = address && !isString(address) ? address.port : 0;
 	return { port, provider };
 }
 

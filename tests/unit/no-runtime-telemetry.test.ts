@@ -138,14 +138,15 @@ describe("shipped server phones home to nothing but the Hevy API", () => {
 		expect(offenders).toEqual([]);
 	});
 
-	// The Worker observer keeps an inert `userHash` option so upstream merges
-	// stay cheap, but nothing in this fork derives that value from the caller's
-	// Hevy API key. Guard the derivation, not the seam.
+	// Nothing in this fork derives a pseudonymous identity from the caller's
+	// Hevy API key: the derivation helpers are gone, and so are upstream's
+	// `USER_HASH_*` contract constants, whose only purpose was to build a
+	// Sentry user id. Guard the derivation AND the constants that enable it.
 	it("derives no pseudonymous user identity from the API key", () => {
 		const offenders = SOURCE_FILES.filter((file) =>
 			// No leading `\b`: `createHmac` from `node:crypto` is the likeliest
 			// reintroduction and has no word boundary before `Hmac`.
-			/(createWorkerUserHash|createUserHash|hmac)/i.test(
+			/(createWorkerUserHash|createNodeUserHash|createUserHash|USER_HASH_CONTEXT|USER_HASH_LENGTH|SAFE_USER_HASH_PATTERN|sentry-user-id|hmac)/i.test(
 				readFileSync(file, "utf8"),
 			),
 		);
