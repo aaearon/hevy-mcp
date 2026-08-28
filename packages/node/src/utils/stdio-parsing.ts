@@ -1,4 +1,4 @@
-import { ZodError } from "zod";
+import { ZodError, z } from "zod";
 import { deserializeMessage } from "@modelcontextprotocol/server";
 import type { JSONRPCMessage } from "@modelcontextprotocol/server";
 import type { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
@@ -6,13 +6,27 @@ import { recordMcpSessionStart } from "./mcp-session-observability.js";
 
 const UTF8_BOM = "﻿";
 /** Maximum escaped characters included in a malformed stdin shape preview. */
-const STDIN_PARSE_SHAPE_PREVIEW_MAX_LENGTH = 200;
+const STDIN_PARSE_PREVIEW_MAX_LENGTH = 200;
 const REDACTED_CONTENT_MARKER = "[REDACTED]";
 
 const MAX_MALFORMED_LINES_PER_READ = 100;
+const functionSchema = z.function();
+const objectSchema = z.object({}).passthrough();
 
-function isMalformedMessageError(error: unknown): boolean {
+function isFunction<T>(value: T): value is T & ((...args: never[]) => void) {
+	return functionSchema.safeParse(value).success;
+}
+function isObject<T>(value: T): value is T & object {
+	return objectSchema.safeParse(value).success;
+}
+
+function isMalformedMessageError(error: Error | string): boolean {
 	return error instanceof SyntaxError || error instanceof ZodError;
+}
+
+interface StructuralPreview {
+	structuralPreview: string;
+	truncated: boolean;
 }
 
 interface MutableReadBuffer {
@@ -30,6 +44,10 @@ interface SdkPrivateStdioAdapter {
 	) => boolean;
 }
 
+const mutableStdioServerTransportSchema = z.custom<MutableStdioServerTransport>(
+	(value): value is MutableStdioServerTransport => isObject(value),
+);
+
 /**
  * Adapter boundary around MCP SDK stdio internals.
  *
@@ -44,12 +62,12 @@ interface SdkPrivateStdioAdapter {
 function createSdkPrivateStdioAdapter(
 	transport: StdioServerTransport,
 ): SdkPrivateStdioAdapter {
-	const mutableTransport = transport as unknown as MutableStdioServerTransport;
+	const mutableTransport = mutableStdioServerTransportSchema.parse(transport);
 
 	return {
 		installReadMessageHook(onReadLine) {
 			const readBuffer = mutableTransport._readBuffer;
-			if (!readBuffer || typeof readBuffer.readMessage !== "function") {
+			if (!readBuffer || !isFunction(readBuffer.readMessage)) {
 				return false;
 			}
 			let deferredMessage: JSONRPCMessage | null = null;
@@ -78,7 +96,9 @@ function createSdkPrivateStdioAdapter(
 					try {
 						return onReadLine(line);
 					} catch (error) {
-						if (!isMalformedMessageError(error)) {
+						const normalizedError =
+							error instanceof Error ? error : String(error);
+						if (!isMalformedMessageError(normalizedError)) {
 							throw error;
 						}
 						skippedMalformedLines += 1;
@@ -97,7 +117,7 @@ function createSdkPrivateStdioAdapter(
 	};
 }
 
-function parseFailurePosition(error: unknown): number | null {
+function parseFailurePosition(error: Error | string): number | null {
 	if (!(error instanceof Error)) {
 		return null;
 	}
@@ -127,23 +147,20 @@ function getFailureLocation(
 	return "unknown";
 }
 
-function createStructuralShapePreview(line: string): {
-	shapePreview: string;
-	truncated: boolean;
-} {
-	let shapePreview = "";
+function createStructuralPreview(line: string): StructuralPreview {
+	let structuralPreview = "";
 	let inContentRun = false;
 	let inWhitespaceRun = false;
 
 	const append = (token: string): boolean => {
 		if (
-			shapePreview.length + token.length >
-			STDIN_PARSE_SHAPE_PREVIEW_MAX_LENGTH
+			structuralPreview.length + token.length >
+			STDIN_PARSE_PREVIEW_MAX_LENGTH
 		) {
 			return false;
 		}
 
-		shapePreview += token;
+		structuralPreview += token;
 		return true;
 	};
 
@@ -152,7 +169,7 @@ function createStructuralShapePreview(line: string): {
 			inContentRun = false;
 			inWhitespaceRun = false;
 			if (!append(character === '"' ? "\\u0022" : character)) {
-				return { shapePreview, truncated: true };
+				return { structuralPreview, truncated: true };
 			}
 			continue;
 		}
@@ -161,7 +178,7 @@ function createStructuralShapePreview(line: string): {
 			inContentRun = false;
 			if (!inWhitespaceRun) {
 				if (!append("\\s")) {
-					return { shapePreview, truncated: true };
+					return { structuralPreview, truncated: true };
 				}
 				inWhitespaceRun = true;
 			}
@@ -171,20 +188,20 @@ function createStructuralShapePreview(line: string): {
 		inWhitespaceRun = false;
 		if (!inContentRun) {
 			if (!append(REDACTED_CONTENT_MARKER)) {
-				return { shapePreview, truncated: true };
+				return { structuralPreview, truncated: true };
 			}
 			inContentRun = true;
 		}
 	}
 
 	return {
-		shapePreview,
+		structuralPreview,
 		truncated: false,
 	};
 }
 
 function getSafeErrorKind(
-	error: unknown,
+	error: Error | string,
 ): "SyntaxError" | "Error" | "UnknownError" {
 	if (error instanceof SyntaxError) {
 		return "SyntaxError";
@@ -196,7 +213,7 @@ function getSafeErrorKind(
 }
 
 function reportStdinParseFailure(
-	error: unknown,
+	error: Error | string,
 	line: string,
 	lineByteLength: number,
 	failureLocation: string,
@@ -204,11 +221,11 @@ function reportStdinParseFailure(
 ): void {
 	try {
 		const errorKind = getSafeErrorKind(error);
-		const { shapePreview, truncated } = createStructuralShapePreview(line);
+		const { structuralPreview, truncated } = createStructuralPreview(line);
 		const position = failurePosition === null ? "unknown" : failurePosition;
 
 		console.error(
-			`Failed to parse MCP stdin message: error_kind=${errorKind} line_bytes=${lineByteLength} failure_location=${failureLocation} failure_position=${position} shape_preview="${shapePreview}" shape_preview_redacted=true shape_preview_truncated=${truncated}`,
+			`Failed to parse MCP stdin message: error_kind=${errorKind} line_bytes=${lineByteLength} failure_location=${failureLocation} failure_position=${position} shape_preview="${structuralPreview}" shape_preview_redacted=true shape_preview_truncated=${truncated}`,
 		);
 	} catch {
 		// Diagnostics are best-effort and must not replace the parser error.
@@ -231,7 +248,7 @@ export function deserializeMessageLine(line: string): JSONRPCMessage {
 		const message = deserializeMessage(normalizedLine);
 		if (
 			message &&
-			typeof message === "object" &&
+			isObject(message) &&
 			"method" in message &&
 			message.method === "initialize"
 		) {
@@ -239,14 +256,15 @@ export function deserializeMessageLine(line: string): JSONRPCMessage {
 		}
 		return message;
 	} catch (error) {
-		const failurePosition = parseFailurePosition(error);
+		const normalizedError = error instanceof Error ? error : String(error);
+		const failurePosition = parseFailurePosition(normalizedError);
 		const failureLocation = getFailureLocation(
 			failurePosition,
 			lineHadLeadingBom,
 		);
 
 		reportStdinParseFailure(
-			error,
+			normalizedError,
 			line,
 			lineByteLength,
 			failureLocation,

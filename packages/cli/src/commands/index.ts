@@ -1,4 +1,5 @@
 import type { HevyClient } from "@hevy-mcp/hevy-client";
+import { z } from "zod";
 import { createOperations, type HevyOperations } from "@hevy-mcp/operations";
 import {
 	getV1BodyMeasurementsQueryParamsSchema,
@@ -47,21 +48,34 @@ import {
 } from "../output/contracts.js";
 
 type Body = ApiObject;
-function body(value: unknown): Body {
-	return value && typeof value === "object" && !Array.isArray(value)
-		? (value as Body)
-		: {};
+function body(value: ApiValue): Body {
+	const parsed = z.object({}).passthrough().safeParse(value);
+	if (!parsed.success) return {};
+	const result: Body = {};
+	for (const [key, item] of Object.entries(parsed.data)) {
+		const parsedItem = z
+			.union([
+				z.string(),
+				z.number(),
+				z.boolean(),
+				z.null(),
+				z.array(z.unknown()),
+			])
+			.safeParse(item);
+		if (parsedItem.success) result[key] = parsedItem.data as ApiValue;
+	}
+	return result;
 }
-function array(value: unknown): ApiValue[] {
+function array(value: ApiValue): ApiValue[] {
 	return Array.isArray(value) ? value : [];
 }
-function text(value: unknown): string {
-	return typeof value === "string" ? value : "";
+function text(value: ApiValue): string {
+	return z.string().safeParse(value).data ?? "";
 }
 function list(data: Body, source: string, output: string, page: number): Body {
-	const count = data.page_count;
+	const count = z.number().safeParse(data.page_count).data;
 	if (
-		typeof count !== "number" ||
+		count === undefined ||
 		!Number.isInteger(count) ||
 		count < 0 ||
 		(data.page !== undefined && data.page !== page)
@@ -78,7 +92,7 @@ function list(data: Body, source: string, output: string, page: number): Body {
 const createBodyMeasurementDataSchema = createBodyMeasurementInputSchema.refine(
 	(fields) =>
 		Object.entries(fields).some(
-			([key, value]) => key !== "date" && typeof value === "number",
+			([key, value]) => key !== "date" && z.number().safeParse(value).success,
 		),
 	"Include at least one numeric measurement field",
 );
@@ -89,8 +103,9 @@ const updateBodyMeasurementDataSchema = updateBodyMeasurementInputSchema.refine(
 
 function mutationData(args: CliArgs): string {
 	const value = args.options.data;
-	if (typeof value !== "string") throw new UsageError("--data is required");
-	return value;
+	const parsed = z.string().safeParse(value);
+	if (!parsed.success) throw new UsageError("--data is required");
+	return parsed.data;
 }
 
 type CommandContext = {
@@ -167,8 +182,10 @@ async function executeWorkoutUpdate({
 }
 
 async function executeWorkoutCount({ client }: CommandContext) {
-	const count = body(await client.getWorkoutCount()).workout_count;
-	if (typeof count !== "number" || !Number.isInteger(count) || count < 0)
+	const count = z
+		.number()
+		.safeParse(body(await client.getWorkoutCount()).workout_count).data;
+	if (count === undefined || !Number.isInteger(count) || count < 0)
 		throw new ApiResponseError("The API returned an invalid workout count");
 	return { workout_count: count };
 }
@@ -488,7 +505,6 @@ async function collectSummaryWorkouts(
 	let pageCount = 1;
 	let pagesScanned = 0;
 	const workouts: Body[] = [];
-	let stoppedEarly = false;
 	while (pageNumber <= pageCount) {
 		const result = body(
 			await client.getWorkouts({ page: pageNumber, pageSize: 10 }),
@@ -517,14 +533,9 @@ async function collectSummaryWorkouts(
 			if (timestamp >= from.getTime() && timestamp <= to.getTime())
 				workouts.push(workout);
 		}
-		const oldest = items.at(-1)?.start_time;
-		if (oldest && Date.parse(text(oldest)) < from.getTime()) {
-			stoppedEarly = true;
-			break;
-		}
 		pageNumber += 1;
 	}
-	return { workouts, pageNumber, pageCount, pagesScanned, stoppedEarly };
+	return { workouts, pageNumber, pageCount, pagesScanned };
 }
 
 function summarizeWorkouts(workouts: readonly Body[]) {
@@ -543,8 +554,10 @@ function summarizeWorkouts(workouts: readonly Body[]) {
 			for (const set of array(body(exercise).sets)) {
 				setCount += 1;
 				const item = body(set);
-				if (typeof item.weight_kg === "number" && typeof item.reps === "number")
-					totalVolumeKg += item.weight_kg * item.reps;
+				const weight = z.number().safeParse(item.weight_kg).data;
+				const reps = z.number().safeParse(item.reps).data;
+				if (weight !== undefined && reps !== undefined)
+					totalVolumeKg += weight * reps;
 			}
 	}
 	return { exerciseCount, setCount, totalVolumeKg, totalDurationSeconds };
@@ -566,10 +579,7 @@ async function executeSummary({ args, client, now }: CommandContext) {
 		set_count: totals.setCount,
 		total_volume_kg: totals.totalVolumeKg,
 		pages_scanned: collection.pagesScanned,
-		complete:
-			collection.stoppedEarly ||
-			collection.pageNumber > collection.pageCount ||
-			collection.pagesScanned === collection.pageCount,
+		complete: collection.pageNumber > collection.pageCount,
 	};
 }
 

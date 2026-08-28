@@ -22,6 +22,7 @@ export {
 	type CreateHevyMcpServerOptions,
 	type HevyClientFactoryContext,
 } from "./server.js";
+export { preloadHevyToolSchemas } from "./tools/register.js";
 export {
 	memoizeObservationScope,
 	type ToolCompletionObservation,
@@ -41,7 +42,14 @@ export {
 	type CacheObservationState,
 	type CacheObserver,
 } from "./utils/cache.js";
-export { createSafeErrorDiagnostic } from "./utils/safe-error-diagnostic.js";
+export {
+	createSafeErrorDiagnostic,
+	SAFE_ERROR_CATEGORIES,
+	SAFE_ERROR_CODES,
+	SAFE_HTTP_METHODS,
+	SAFE_STACK_SOURCES,
+} from "./utils/error-policy.js";
+export { TELEMETRY_ARGUMENT_KEYS } from "./utils/telemetry-contract.js";
 export {
 	createMcpToolFailureEvent,
 	createExecutionErrorProjection,

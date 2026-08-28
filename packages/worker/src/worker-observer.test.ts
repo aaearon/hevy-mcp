@@ -11,16 +11,16 @@ import {
 	type WorkerToolObserverOptions,
 } from "./worker-observer.js";
 
-const invocation = {
+const invocation: SafeToolInvocation = {
 	name: "get-workouts",
 	kind: "tool",
 	taxonomy: { feature: "workouts", kind: "read", operation: "list" },
-	argumentKeys: ["page", "query", "workout_id", "raw-secret"],
-	argumentPresence: { query: true, workout_id: true, "raw-secret": true },
-	numericArgumentBuckets: { page: "2-10", limit: "not-a-bucket" },
+	argumentKeys: ["page", "query", "workout_id"],
+	argumentPresence: { query: true, workout_id: true },
+	numericArgumentBuckets: { page: "2-10" },
 	booleanArguments: { refresh: true },
 	argumentKeyCountBucket: "2-10",
-} as unknown as SafeToolInvocation;
+};
 
 function createScope(
 	events: WorkerObservationEvent[],
@@ -48,11 +48,12 @@ function createTracingDouble() {
 	const span = {
 		isTraced: true,
 		setAttribute: vi.fn(),
+		setAttributes: vi.fn(),
 		end: vi.fn(),
 	};
 	const tracing: NonNullable<WorkerToolObserverOptions["tracing"]> = {
 		startActiveSpan<T>(_name: string, callback: (traceSpan: Span) => T): T {
-			return callback(span as unknown as Span);
+			return callback(span as Span);
 		},
 	};
 	const startActiveSpan = vi.spyOn(tracing, "startActiveSpan");
@@ -60,11 +61,10 @@ function createTracingDouble() {
 }
 
 describe("createWorkerToolObserver", () => {
-	it("creates a user-associated span with the Cloudflare colo", async () => {
+	it("creates a span with the Cloudflare colo and no user identity", async () => {
 		const events: WorkerObservationEvent[] = [];
 		const { span, tracing, startActiveSpan } = createTracingDouble();
 		const scope = createScope(events, {
-			userHash: "2cb0b5f95a",
 			cloudflareColo: "SFO",
 			tracing,
 		});
@@ -76,8 +76,30 @@ describe("createWorkerToolObserver", () => {
 			"mcp.tool.get-workouts",
 			expect.any(Function),
 		);
-		expect(span.setAttribute).toHaveBeenCalledWith("user.hash", "2cb0b5f95a");
 		expect(span.setAttribute).toHaveBeenCalledWith("cloudflare.colo", "SFO");
+		// This fork derives no pseudonymous identity, so no span may carry one.
+		expect(span.setAttribute).not.toHaveBeenCalledWith(
+			"user.hash",
+			expect.anything(),
+		);
+		expect(span.setAttribute).toHaveBeenCalledWith("hevy.feature", "workouts");
+		expect(span.setAttribute).toHaveBeenCalledWith("mcp.tool.kind", "read");
+		expect(span.setAttribute).toHaveBeenCalledWith(
+			"mcp.tool.operation",
+			"list",
+		);
+		expect(span.setAttribute).not.toHaveBeenCalledWith(
+			"geo.locality.name",
+			expect.anything(),
+		);
+		expect(span.setAttribute).not.toHaveBeenCalledWith(
+			"geo.locality.region",
+			expect.anything(),
+		);
+		expect(span.setAttribute).not.toHaveBeenCalledWith(
+			"geo.country.code",
+			expect.anything(),
+		);
 		expect(span.end).toHaveBeenCalledOnce();
 		expect(JSON.stringify(span.setAttribute.mock.calls)).not.toContain(
 			"test-key",
@@ -110,7 +132,6 @@ describe("createWorkerToolObserver", () => {
 		const events: WorkerObservationEvent[] = [];
 		const { span, tracing } = createTracingDouble();
 		const scope = createScope(events, {
-			userHash: "2cb0b5f95a",
 			tracing,
 		});
 
@@ -122,6 +143,26 @@ describe("createWorkerToolObserver", () => {
 			expect.anything(),
 		);
 	});
+
+	it.each(["sfo", "UNKNOWN", "1.2.3", ""])(
+		"omits an invalid colo: %s",
+		async (value) => {
+			const events: WorkerObservationEvent[] = [];
+			const { span, tracing } = createTracingDouble();
+			const scope = createScope(events, {
+				cloudflareColo: value,
+				tracing,
+			});
+
+			await scope.run(() => Promise.resolve("ok"));
+			finish(scope, { outcome: "success", durationMs: 1 });
+
+			expect(span.setAttribute).not.toHaveBeenCalledWith(
+				"cloudflare.colo",
+				expect.anything(),
+			);
+		},
+	);
 
 	it("emits safe bounded invocation and successful completion events", async () => {
 		const events: WorkerObservationEvent[] = [];
@@ -234,31 +275,31 @@ describe("createWorkerToolObserver", () => {
 			outcome: "thrown_error",
 			durationMs: 1,
 			error: {
-				category: "secret-category",
+				category: "UnknownError",
 				code: "secret-code",
 				status: 999,
 				method: "GET?token=secret",
 				endpoint: "/v1/workouts/user-secret",
-				phase: "secret-phase",
-				operation_safety: "secret-safety",
-				commit_state: "secret-state",
+				phase: "before-dispatch",
+				operation_safety: "read",
+				commit_state: "not_sent",
 				safe_to_retry: true,
-				outcome: "secret-outcome",
+				outcome: "terminal_failure",
 				frames: [
-					{ source: "secret-source", line: 1, column: 1 },
+					{ source: "worker", line: 0, column: 1 },
 					{ source: "worker", line: 1, column: 1 },
 				],
 			},
 			errorOutcome: {
-				outcome: "secret-outcome",
-				phase: "secret-phase",
-				operation_safety: "secret-safety",
-				commit_state: "secret-state",
+				outcome: "terminal_failure",
+				phase: "before-dispatch",
+				operation_safety: "read",
+				commit_state: "not_sent",
 				safe_to_retry: true,
 				code: "secret-code",
 				status: 999,
 			},
-		} as unknown as SafeToolCompletion);
+		});
 
 		const event = events[1];
 		expect(event).toMatchObject({

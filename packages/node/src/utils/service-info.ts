@@ -9,10 +9,8 @@
 declare const __HEVY_MCP_NAME__: string | undefined;
 declare const __HEVY_MCP_VERSION__: string | undefined;
 
-const name =
-	typeof __HEVY_MCP_NAME__ === "string" ? __HEVY_MCP_NAME__ : "hevy-mcp";
-const version =
-	typeof __HEVY_MCP_VERSION__ === "string" ? __HEVY_MCP_VERSION__ : "dev";
+const name = __HEVY_MCP_NAME__ ?? "hevy-mcp";
+const version = __HEVY_MCP_VERSION__ ?? "dev";
 
 /**
  * Bundled service identity — avoids passing name and version as

@@ -1,6 +1,7 @@
 import { PassThrough, Writable } from "node:stream";
 import * as ServerPackage from "@modelcontextprotocol/server";
 import type { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { z } from "zod";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	deserializeMessageLine,
@@ -64,7 +65,17 @@ function createTransportDouble() {
 	};
 }
 
-function extractShapePreview(diagnostic: string): string {
+function asStdioTransport(
+	transport: ReturnType<typeof createTransportDouble>["transport"],
+): StdioServerTransport {
+	return z
+		.custom<StdioServerTransport>(
+			(value) => z.object({}).passthrough().safeParse(value).success,
+		)
+		.parse(transport);
+}
+
+function extractStructuralPreview(diagnostic: string): string {
 	const prefix = ' shape_preview="';
 	const suffix = '" shape_preview_redacted=';
 	const start = diagnostic.indexOf(prefix);
@@ -135,12 +146,12 @@ describe("package-local stdio parse hardening", () => {
 		expect(() => deserializeMessageLine(line)).toThrow();
 
 		const diagnostic = String(stderrSpy.mock.calls[0]?.[0]);
-		const shapePreview = extractShapePreview(diagnostic);
+		const structuralPreview = extractStructuralPreview(diagnostic);
 		expect(diagnostic).toContain("shape_preview_redacted=true");
 		expect(diagnostic).not.toContain("credential-sentinel");
 		expect(diagnostic).not.toContain("bearer-sentinel");
 		expect(diagnostic).not.toContain("private-workout-sentinel");
-		expect(shapePreview.length).toBeLessThanOrEqual(200);
+		expect(structuralPreview.length).toBeLessThanOrEqual(200);
 	});
 
 	it("keeps the SDK-internal transport adapter package-local", () => {
@@ -150,7 +161,7 @@ describe("package-local stdio parse hardening", () => {
 
 	it("preserves buffering across chunks", () => {
 		const { originalOnData, readBuffer, transport } = createTransportDouble();
-		createHardenedStdioTransport(transport as unknown as StdioServerTransport);
+		createHardenedStdioTransport(asStdioTransport(transport));
 		const firstChunk = Buffer.from('﻿{"jsonrpc":"2.0","id":1,', "utf8");
 		const secondChunk = Buffer.from('"method":"ping"}\r\n', "utf8");
 
@@ -165,7 +176,7 @@ describe("package-local stdio parse hardening", () => {
 
 	it("parses multiple messages buffered in one chunk", () => {
 		const { readBuffer, transport } = createTransportDouble();
-		createHardenedStdioTransport(transport as unknown as StdioServerTransport);
+		createHardenedStdioTransport(asStdioTransport(transport));
 		transport._ondata(
 			Buffer.from(
 				'{"jsonrpc":"2.0","id":1,"method":"ping"}\n' +
@@ -231,7 +242,7 @@ describe("package-local stdio parse hardening", () => {
 			throw unexpected;
 		});
 		vi.spyOn(console, "error").mockImplementation(() => {});
-		createHardenedStdioTransport(transport as unknown as StdioServerTransport);
+		createHardenedStdioTransport(asStdioTransport(transport));
 		transport._ondata?.(Buffer.from('{"jsonrpc":"2.0"}\n', "utf8"));
 
 		expect(() => readBuffer.readMessage()).toThrow(unexpected);
@@ -240,7 +251,7 @@ describe("package-local stdio parse hardening", () => {
 	it("defers the message after the malformed-line drain cap", async () => {
 		const { readBuffer, transport } = createTransportDouble();
 		vi.spyOn(console, "error").mockImplementation(() => {});
-		createHardenedStdioTransport(transport as unknown as StdioServerTransport);
+		createHardenedStdioTransport(asStdioTransport(transport));
 		const malformedLines = Array.from({ length: 100 }, () => "{bad}").join(
 			"\n",
 		);

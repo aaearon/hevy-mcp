@@ -6,15 +6,24 @@ import {
 	createMcpToolFailureEvent,
 	withErrorHandling,
 } from "./error-handler.js";
+import { SafeUserError } from "./safe-user-error.js";
 
-function httpError(status: number, data?: unknown, headers?: Headers) {
+type ErrorPayload = { readonly error: string };
+
+function httpError(
+	status: number,
+	data?: ErrorPayload,
+	headers?: Headers,
+	method = "GET",
+	endpoint = "/v1/user/info",
+) {
 	return new HevyHttpError(`HTTP ${status}`, {
 		status,
 		statusText: "Error",
 		data,
 		headers,
-		method: "GET",
-		endpoint: "/v1/user/info",
+		method,
+		endpoint,
 	});
 }
 
@@ -75,15 +84,47 @@ describe("createErrorResponse", () => {
 		});
 	});
 
+	it("only exposes explicitly safe user errors and bounds their messages", () => {
+		const longMessage = "validation failed ".repeat(100);
+		const result = createErrorResponse(new Error(longMessage), "test-tool");
+		const safeResult = createErrorResponse(
+			new SafeUserError(longMessage),
+			"test-tool",
+		);
+
+		expect(result.content[0]?.text).toBe(
+			"[test-tool] Error: The request failed unexpectedly. Please try again.",
+		);
+		expect(safeResult.content[0]?.text).toBe(
+			`[test-tool] Error: ${longMessage.slice(0, 512)}`,
+		);
+	});
+
+	it("gives routine update 404s actionable guidance", () => {
+		const result = createErrorResponse(
+			httpError(404, undefined, undefined, "PUT", "/v1/routines/:routineId"),
+		);
+		expect(result.content[0]?.text).toContain(
+			"The requested routine was not found in Hevy. It may have been deleted or the routine ID is incorrect.",
+		);
+	});
+
 	it.each([
 		[401, "The Hevy API key is invalid or has expired"],
 		[404, "The requested resource was not found"],
-		[409, "A conflict occurred"],
+		[400, "The request failed Hevy validation"],
+		[409, "A conflict occurred because the resource already exists"],
 		[422, "The request failed Hevy validation"],
 		[503, "Hevy API experienced an error"],
 	])("maps HTTP %s to a safe Hevy message", (status, expected) => {
 		const result = createErrorResponse(httpError(status));
 		expect(result.content[0]?.text).toContain(expected);
+		if (status === 409) {
+			expect(result.content[0]?.text).not.toContain("body measurement");
+			expect(result.content[0]?.text).toContain(
+				"use the update tool when appropriate",
+			);
+		}
 	});
 
 	it("does not expose parsed upstream payloads for unmapped statuses", () => {
@@ -94,7 +135,7 @@ describe("createErrorResponse", () => {
 		const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 		const result = createErrorResponse(error);
 		expect(result.content[0]?.text).toContain(
-			"Hevy API request failed (HTTP 400)",
+			"The request failed Hevy validation",
 		);
 		expect(JSON.stringify(result)).not.toContain(secret);
 		expect(JSON.stringify(stderrSpy.mock.calls)).not.toContain(secret);
@@ -202,7 +243,8 @@ describe("createErrorResponse", () => {
 	});
 
 	it("does not expose non-Error thrown values in client responses", () => {
-		const cyclic: { self?: object } = {};
+		type CyclicThrownValue = { self?: CyclicThrownValue };
+		const cyclic: CyclicThrownValue = {};
 		cyclic.self = cyclic;
 		const cases: unknown[] = [
 			"Bearer secret-string",

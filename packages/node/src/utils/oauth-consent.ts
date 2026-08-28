@@ -83,7 +83,7 @@ const CONSENT_STYLES = `
 	}
 `;
 
-export const CONSENT_HTML_HEADERS: Record<string, string> = {
+export const CONSENT_HTML_HEADERS = {
 	"Content-Type": "text/html; charset=utf-8",
 	"Cache-Control": "no-store",
 	"X-Frame-Options": "DENY",
@@ -93,7 +93,7 @@ export const CONSENT_HTML_HEADERS: Record<string, string> = {
 	"Content-Security-Policy":
 		"default-src 'none'; style-src 'unsafe-inline'; " +
 		"frame-ancestors 'none'; base-uri 'none'",
-};
+} satisfies Record<string, string>;
 
 export function renderConsentPage(options: ConsentPageOptions): string {
 	const clientName = escapeHtml(options.clientName);

@@ -1,4 +1,5 @@
 import type { Routine } from "@hevy-mcp/hevy-client/types";
+import { createRoutineOutputSchema } from "../utils/output-schemas.js";
 import {
 	createRoutineResponse,
 	routineResponse,
@@ -14,16 +15,16 @@ import {
 
 import {
 	nonEmptyId,
-	paginationShape,
-	createRoutineInputShape,
-	updateRoutineInputShape,
+	paginationFields,
+	createRoutineInputFields,
+	updateRoutineInputFields,
 } from "./input-schemas.js";
 import { buildRoutinePayload } from "./mutation-semantics.js";
 import type { ToolDefinition } from "./define-tool.js";
 import type { ToolRuntime } from "./tool-runtime.js";
 import type { PaginatedToolResult } from "../utils/response-contracts.js";
 
-const getRoutinesSchema = paginationShape({
+const getRoutinesSchema = paginationFields({
 	defaultPageSize: 5,
 	maxPageSize: 10,
 });
@@ -78,7 +79,7 @@ const getRoutineDefinition: ToolDefinition<
 	},
 };
 
-const createRoutineSchema = createRoutineInputShape;
+const createRoutineSchema = createRoutineInputFields;
 
 type CreateRoutineResult = {
 	routine: Routine | null;
@@ -95,6 +96,7 @@ const createRoutineDefinition: ToolDefinition<
 		"Writes a reusable routine; use create-workout for completed sessions. Retries can create duplicates.",
 	inputSchema: createRoutineSchema,
 	kind: "write",
+	outputSchema: createRoutineOutputSchema,
 	annotations: createAnnotations("Create Routine"),
 	responseContract: createRoutineResponse,
 	execute: async (runtime, args) => {
@@ -107,7 +109,7 @@ const createRoutineDefinition: ToolDefinition<
 	},
 };
 
-const updateRoutineSchema = updateRoutineInputShape;
+const updateRoutineSchema = updateRoutineInputFields;
 
 type UpdateRoutineResult = {
 	routine: Routine | null;

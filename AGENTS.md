@@ -290,12 +290,49 @@ Rules for maintainers and agents:
   no default implementation, and `tool-runtime.ts` selects the plain handler
   factory when no observer is passed. They exist purely so upstream merges stay
   cheap. Keep them inert; do not wire a default observer.
-- **Every upstream merge must drop the `@sentry/*` / `@opentelemetry/*` hunks**
-  and any reintroduced `scheduleUpdateCheck` / `registry.npmjs.org` code.
-  Upstream keeps growing this surface: as of `hevy-mcp@6.1.1` that also means
-  `packages/node/src/utils/{telemetry,metrics,failure-reporter,sdk-observability,
-execution-telemetry,tool-observer,hevy-client-observability,version-check}.ts`
-  and the Sentry rollup plugin in `packages/node/tsdown.config.ts`.
+  The seam rule stops at code with a plausible future use. It does **not**
+  extend to upstream's user-pseudonym constants in
+  `packages/core/src/utils/telemetry-contract.ts`: their only purpose was to
+  build a Sentry user id, nothing in this fork derives one, and
+  `tests/unit/no-runtime-telemetry.test.ts` scans for them by name. They are
+  removed, along with the Worker observer's `userHash` option and its
+  `user.hash` span attribute. Only `TELEMETRY_ARGUMENT_KEYS` survives in that
+  file, because `tool-runtime.ts` uses it as an argument allowlist.
+- **Every upstream merge must drop the following surfaces.** Upstream keeps
+  regrowing them; as of `hevy-mcp@6.1.7` that means:
+  - the `@sentry/*` / `@opentelemetry/*` hunks and any reintroduced
+    `scheduleUpdateCheck` / `registry.npmjs.org` code, including
+    `packages/node/src/utils/{telemetry,metrics,failure-reporter,
+sdk-observability,execution-telemetry,tool-observer,hevy-client-observability,
+version-check,user-hash}.ts` (with co-located tests), the Sentry rollup plugin
+    in `packages/node/tsdown.config.ts`, and `docs/telemetry-dashboards.md` /
+    `docs/telemetry-data-dictionary.md`;
+  - the `otel-cicd-action` job in `.github/workflows/build-and-test.yml`,
+    which exports CI traces to `otel.chrisdoc.dev`;
+  - the `CLOUDFLARE_OTEL_TRACES_DESTINATIONS` /
+    `CLOUDFLARE_OTEL_LOGS_DESTINATIONS` observability block in
+    `cloudflare.config.ts`;
+  - the whole user-pseudonym path: `createNodeUserHash`
+    (`packages/node/src/utils/user-hash.ts`), `createWorkerUserHash`
+    (`packages/worker/src/worker-telemetry.ts`), the `USER_HASH_*` /
+    `SAFE_USER_HASH_PATTERN` constants in
+    `packages/core/src/utils/telemetry-contract.ts` and their re-exports from
+    `packages/core/src/index.ts`, and the Worker observer's `userHash` option,
+    `safeUserHash` validator and `user.hash` span attribute;
+  - city/region geolocation span tagging: `getCloudflareGeography` /
+    `sanitizeCloudflareGeographyValue` in `worker-telemetry.ts` and the
+    `geo.locality.name` / `geo.locality.region` / `geo.country.code`
+    attributes in `worker-observer.ts`. Keep `getCloudflareColo` and the
+    `cloudflare.colo` span tag — that's infrastructure routing info, not user
+    location;
+  - the `semver` runtime dependency in `packages/node/package.json` (backs
+    the npm registry update check);
+  - the `HEVY_MCP_TELEMETRY`, `HEVY_MCP_TELEMETRY_DIAGNOSTICS`,
+    `SENTRY_DSN`, `SENTRY_RELEASE`, and `XDG_CACHE_HOME` rows in the README
+    config tables;
+  - the `@sentry/cli` entry in the root `package.json` `allowScripts` map;
+  - upstream's HMAC-pseudonym / IP-geolocation collection text in
+    `docs/privacy-policy.md`.
 - `repository/topology.json` carries the workspace boundary rules that
   `scripts/check-package-boundaries.mjs` enforces. Every workspace must list
   `@sentry/` and `@opentelemetry/` as forbidden imports.
