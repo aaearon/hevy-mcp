@@ -65,11 +65,11 @@ describe("generated client closure checks", () => {
 	});
 
 	it("resolves package bins through Node instead of platform shell shims", async () => {
-		const executable = await resolvePackageExecutable("@kubb/cli", "kubb");
+		const executable = await resolvePackageExecutable("kubb", "kubb");
 
 		expect(executable.command).toBe(process.execPath);
 		expect(executable.args).toHaveLength(1);
-		expect(executable.args[0]).toMatch(/[\\/]bin[\\/]kubb\.cjs$/);
+		expect(executable.args[0]).toMatch(/[\\/]bin[\\/]kubb\.(?:c?js)$/);
 	});
 
 	it("reports missing package metadata and executable declarations", async () => {
@@ -122,12 +122,12 @@ describe("generated client closure checks", () => {
 
 			await expect(
 				runCommand(process.execPath, [script], root, {
-					timeout: 1_000,
+					timeout: 250,
 					killSignal: "SIGTERM",
 				}),
 			).rejects.toMatchObject({
 				message: expect.stringMatching(
-					/failed: timed out after 1000ms; sent SIGTERM[\s\S]*command started/,
+					/failed: timed out after 250ms; sent SIGTERM[\s\S]*command started/,
 				),
 			});
 		} finally {
@@ -152,12 +152,12 @@ describe("generated client closure checks", () => {
 
 			await expect(
 				runCommand(process.execPath, [script], root, {
-					timeout: 1_000,
+					timeout: 250,
 					killSignal: "SIGTERM",
 				}),
 			).rejects.toMatchObject({
 				message: expect.stringMatching(
-					/failed: timed out after 1000ms; sent SIGTERM[\s\S]*process started/,
+					/failed: timed out after 250ms; sent SIGTERM[\s\S]*process started/,
 				),
 			});
 		} finally {
@@ -184,12 +184,13 @@ describe("generated client closure checks", () => {
 
 			await expect(
 				runCommand(process.execPath, [script], root, {
-					timeout: 1_000,
+					timeout: 250,
 					killSignal: "SIGTERM",
+					gracePeriodMs: 100,
 				}),
 			).rejects.toMatchObject({
 				message: expect.stringMatching(
-					/failed: timed out after 1000ms; sent SIGTERM[\s\S]*process started/,
+					/failed: timed out after 250ms; sent SIGTERM[\s\S]*process started/,
 				),
 			});
 		} finally {
@@ -207,10 +208,10 @@ describe("generated client closure checks", () => {
 
 			await expect(
 				runCommand(process.execPath, [script], root, {
-					timeout: 1_000,
+					timeout: 100,
 					killSignal: "SIGKILL",
 				}),
-			).rejects.toThrow(/failed: timed out after 1000ms; sent SIGKILL/);
+			).rejects.toThrow(/failed: timed out after 100ms; sent SIGKILL/);
 		} finally {
 			await rm(root, { recursive: true, force: true });
 		}
@@ -305,13 +306,17 @@ describe("generated client closure checks", () => {
 		}
 	});
 
-	it("keeps the curated barrels closed over generated output", async () => {
-		expect(
-			await findCuratedBarrelDrift(
-				resolve(import.meta.dirname, "../packages/hevy-client"),
-			),
-		).toEqual([]);
-	});
+	it.skipIf(process.env.HEVY_UNIT_LANE === "1")(
+		"keeps the curated barrels closed over generated output",
+		async () => {
+			// Redundant with `check:generated` (npm run check); skipped in unit lane.
+			expect(
+				await findCuratedBarrelDrift(
+					resolve(import.meta.dirname, "../packages/hevy-client"),
+				),
+			).toEqual([]);
+		},
+	);
 
 	it("reports missing curated barrels and traversal targets", async () => {
 		const root = await mkdtemp(
@@ -334,11 +339,17 @@ describe("generated client closure checks", () => {
 		}
 	});
 
-	it("regenerates the checked client without drift", async () => {
-		const result = await checkGeneratedClient();
+	it.skipIf(process.env.HEVY_UNIT_LANE === "1")(
+		"regenerates the checked client without drift",
+		async () => {
+			// Redundant with `check:generated` (npm run check), which runs the
+			// same full Kubb regeneration; skipped in the fast unit lane.
+			const result = await checkGeneratedClient();
 
-		expect(result.generatedFiles).toBeGreaterThan(0);
-	}, 60_000);
+			expect(result.generatedFiles).toBeGreaterThan(0);
+		},
+		60_000,
+	);
 
 	it("reports a missing named public export", async () => {
 		const fixture = await materializeFixture(

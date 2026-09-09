@@ -17,7 +17,7 @@
 			"source": "mattpocock/skills",
 			"sourceType": "github",
 			"skillPath": "skills/engineering/code-review/SKILL.md",
-			"computedHash": "1d5e7242a98674635be79ab310cdda0e555d36a9903d2526ebf4263d0b7997ca"
+			"computedHash": "caa9a086baaf9e0f7cd71f64edfa83da6821c05e826b083221f3d02e3d6a1905"
 		},
 		"diagnosing-bugs": {
 			"source": "mattpocock/skills",
@@ -36,6 +36,12 @@
 			"sourceType": "github",
 			"skillPath": "cursor-team-kit/skills/thermo-nuclear-code-quality-review/SKILL.md",
 			"computedHash": "9052b01b46b1d8dbf94c45f9313ec1983443f9a460e83d49cdc7fe0f640ca476"
+		},
+		"using-entire": {
+			"source": "entireio/skills",
+			"sourceType": "github",
+			"skillPath": "skills/using-entire/SKILL.md",
+			"computedHash": "2ae4c24eb498ae8782dd5c1b9b8e452c9b4a7a9e74a226a893e6afc12f6567cc"
 		},
 		"wayfinder": {
 			"source": "mattpocock/skills",

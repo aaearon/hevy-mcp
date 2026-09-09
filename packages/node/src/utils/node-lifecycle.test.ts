@@ -18,6 +18,7 @@ const target = {
 afterEach(() => {
 	vi.clearAllMocks();
 	target.close.mockImplementation(() => Promise.resolve());
+	doubles.shutdown.mockImplementation(() => undefined);
 });
 
 describe("Node lifecycle runner", () => {
@@ -51,6 +52,23 @@ describe("Node lifecycle runner", () => {
 			transport: "http",
 			listening: false,
 		});
+	});
+
+	it("closes a partially adopted target when startup fails", async () => {
+		const partial = { close: vi.fn().mockResolvedValue(undefined) };
+		const error = new Error("listen failed");
+
+		await expect(
+			runNodeLifecycle({
+				transport: "http",
+				start: (context) => {
+					context.adoptTarget(partial);
+					return Promise.reject(error);
+				},
+			}),
+		).rejects.toBe(error);
+
+		expect(partial.close).toHaveBeenCalledOnce();
 	});
 
 	it("classifies a runtime failure after HTTP listening", async () => {
@@ -153,5 +171,26 @@ describe("Node lifecycle runner", () => {
 		await options.onComplete(true);
 
 		expect(doubles.termination).toHaveBeenCalledWith("clean");
+	});
+
+	it("preserves a shutdown registration failure and cleans prior acquisitions once", async () => {
+		const registrationError = new Error("shutdown registration failed");
+		const partial = { close: vi.fn().mockResolvedValue(undefined) };
+		doubles.shutdown.mockImplementation(() => {
+			throw registrationError;
+		});
+
+		await expect(
+			runNodeLifecycle({
+				transport: "http",
+				start: (context) => {
+					context.adoptTarget(partial);
+					context.markListening();
+					return Promise.resolve({ target: partial });
+				},
+			}),
+		).rejects.toBe(registrationError);
+
+		expect(partial.close).toHaveBeenCalledOnce();
 	});
 });

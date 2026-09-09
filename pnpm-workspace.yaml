@@ -1,0 +1,24 @@
+packages:
+  - "packages/*"
+
+# Multiple hevy-mcp worktrees share one virtual store (<store-path>/links/)
+virtualStoreType: global
+
+# pnpm 12's release-age gate would block fresh dependency releases in CI;
+# npm never gated on this, so disable it.
+minimumReleaseAge: 0
+
+# Narrow, auditable build-script allowlist in place of upstream's blanket
+# `dangerouslyAllowAllBuilds: true`. Values mirror the packages this fork
+# already vetted under npm's `allowScripts` policy, so pnpm reproduces npm's
+# behaviour exactly. better-sqlite3 must build its native binary or the
+# http+oauth transport fails at first login (see Dockerfile.oauth).
+# msgpackr-extract is false because npm's allowScripts never permitted it
+# either; msgpackr falls back to its pure-JS path.
+allowBuilds:
+  "@swc/core": true
+  better-sqlite3: true
+  esbuild: true
+  msgpackr-extract: false
+  nx: true
+  workerd: true

@@ -146,8 +146,8 @@ When adding a new tool or handler:
 
 - [ ] Import the response type from `@hevy-mcp/hevy-client/types`
 - [ ] Add explicit type annotation: `const data: ResponseType = await hevyClient.method()`
-- [ ] Verify type checking passes: `npm run check:types`
-- [ ] Verify tests pass: `npx vitest run --exclude tests/integration/**`
+- [ ] Verify type checking passes: `pnpm run check:types`
+- [ ] Verify tests pass: `pnpm exec vitest run --exclude tests/integration/**`
 
 ## Troubleshooting
 
@@ -177,13 +177,35 @@ If the hevyClient method returns a different type than expected:
 
 ### When Regenerating the API Client
 
-If you need to refresh the checked-in spec first, run `npm run openapi`.
+If you need to refresh the checked-in spec first, run `pnpm run openapi`.
 
-After running `npm run build:client`:
+After running `pnpm run build:client`:
 
-1. Run `npm run check:types` to catch any breaking changes
+1. Run `pnpm run check:types` to catch any breaking changes
 2. Update type annotations in tool handlers if needed
-3. Run tests to verify behavior: `npx vitest run --exclude tests/integration/**`
+3. Run tests to verify behavior: `pnpm exec vitest run --exclude tests/integration/**`
+
+### Compiler-enforced vocabulary completeness
+
+When a tagged-error union must stay in sync with a runtime table (e.g. an
+error-tag allowlist), derive the table from the union so additions fail
+closed:
+
+```typescript
+type CoreToolTag = CoreToolError["_tag"];
+
+const ERROR_TAGS = {
+	ToolInputValidationError: true,
+	// ... every member
+} as const satisfies Record<CoreToolTag, true>;
+```
+
+Adding a member to the union without listing its tag is a type error, and a
+misspelled tag is an excess-key error. Prefer this over `instanceof` chains,
+which drift silently. The table enforces vocabulary completeness at compile
+time only: the runtime guard must still verify each value (for example with
+an own-property tag check), because a plain object carrying a matching
+`_tag` is not a valid union member.
 
 ### Code Review Checklist
 

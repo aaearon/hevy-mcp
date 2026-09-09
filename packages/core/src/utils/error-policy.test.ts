@@ -1,13 +1,25 @@
 import { describe, expect, it } from "vitest";
+import { Cause } from "effect";
 import { HevyHttpError } from "@hevy-mcp/hevy-client";
 
 import {
 	createSafeErrorDiagnostic,
+	determineErrorType,
+	ErrorType,
+	resolveErrorPolicy,
 	SAFE_ERROR_CATEGORIES,
 	SAFE_ERROR_CODES,
 	SAFE_HTTP_METHODS,
 	SAFE_STACK_SOURCES,
 } from "./error-policy.js";
+import {
+	EmptyMeasurementUpdateError,
+	PaginationMismatchError,
+	TrainingSummaryDataError,
+	TrainingSummaryValidationError,
+	WorkoutPayloadError,
+	WorkoutPrivacyError,
+} from "@hevy-mcp/operations";
 
 /** A category with no corresponding JS constructor (produced by fallthrough). */
 const LAST_RESORT_CATEGORY = "UnknownError" as const;
@@ -185,5 +197,60 @@ describe("createSafeErrorDiagnostic", () => {
 			commit_state: "unknown",
 			safe_to_retry: false,
 		});
+	});
+
+	it("resolves bounded timeouts to a network error with a timeout message", () => {
+		for (const error of [
+			new Cause.TimeoutError(),
+			new DOMException("deadline", "TimeoutError"),
+		]) {
+			const policy = resolveErrorPolicy(error, "fallback");
+			expect(policy.type).toBe(ErrorType.NETWORK_ERROR);
+			expect(policy.message).toMatch(/time limit/i);
+			expect(policy.diagnostic.code).toBe("HEVY_DEADLINE_EXCEEDED");
+		}
+	});
+
+	it("classifies and resolves operation domain errors with their messages", () => {
+		const validationErrors = [
+			new WorkoutPrivacyError({
+				message: "Workout is private and cannot be updated.",
+			}),
+			new WorkoutPayloadError({ message: "Invalid exercises payload." }),
+			new EmptyMeasurementUpdateError({
+				message: "Measurement update payload is empty.",
+			}),
+			new TrainingSummaryValidationError({
+				weeks: 0,
+				message: "Weeks must be positive.",
+			}),
+		];
+
+		for (const err of validationErrors) {
+			expect(determineErrorType(err)).toBe(ErrorType.VALIDATION_ERROR);
+			const policy = resolveErrorPolicy(err, "fallback");
+			expect(policy.type).toBe(ErrorType.VALIDATION_ERROR);
+			expect(policy.message).toBe(err.message);
+		}
+
+		const apiErrors = [
+			new PaginationMismatchError({
+				requested: 10,
+				received: 5,
+				collection: "workouts",
+				message: "Pagination count mismatch.",
+			}),
+			new TrainingSummaryDataError({
+				collection: "workouts",
+				message: "Corrupted workout data in summary.",
+			}),
+		];
+
+		for (const err of apiErrors) {
+			expect(determineErrorType(err)).toBe(ErrorType.API_ERROR);
+			const policy = resolveErrorPolicy(err, "fallback");
+			expect(policy.type).toBe(ErrorType.API_ERROR);
+			expect(policy.message).toBe(err.message);
+		}
 	});
 });

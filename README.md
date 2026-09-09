@@ -46,9 +46,40 @@ API requests.
 
 The repository is organized as a private workspace with explicit runtime
 boundaries: `@hevy-mcp/hevy-client` owns the web-safe Hevy client,
+`@hevy-mcp/operations` owns reusable Hevy domain operations,
 `@hevy-mcp/core` owns MCP tools and server construction, `hevy-mcp` is the
-published Node.js stdio adapter, and `@hevy-mcp/worker` is the private
-Cloudflare HTTP/OAuth adapter. Only the Node workspace is publishable.
+published Node.js stdio adapter, `@hevy-mcp/worker` is the private Cloudflare
+HTTP/OAuth adapter, and `@chrisdoc/hevy-cli` is the standalone CLI. Node and
+CLI are the public packages.
+
+The public `HevyClient` remains Promise-based, while
+`@hevy-mcp/operations` provides Effect-first domain programs for reads,
+mutations, and composite workflows. Effect is also the control structure for
+the request runtime: `@hevy-mcp/hevy-client` owns retry schedules, per-attempt
+timeouts, and interruption, rather than using Effect only as a delay
+calculator. MCP tools and CLI commands collapse each invocation once at their
+Promise adapter boundary. The MCP catalog remains 22 tools.
+
+The runtime has three nested scopes:
+
+1. **Process Scope:** the Node lifecycle owns telemetry, signal handlers, and
+   transport shutdown.
+2. **Server Scope:** core owns the MCP runtime and the exercise-template cache,
+   including finalization when the server closes.
+3. **Request Scope:** each tool or resource invocation carries its deadline and
+   MCP request signal, so fiber interruption reaches the Hevy request.
+
+These scopes do not change the supported Promise façades. Public
+`HevyClient` methods, `createHevyMcpServer`, `createNodeMcpServer`,
+`runStdioServer` / `runServer`, operation `.execute()`, and CLI
+`execute` / `runCli` remain usable without requiring callers to construct
+Effect programs.
+
+The Worker adapter is not Effect-wide: its OAuth, bindings, and request
+handling remain platform-specific Promise code; only the validation-cache
+retry is Effect-controlled. Tool input and response contracts remain Zod
+contracts, environment and CLI parsing remain throwing parsers, and generated
+Kubb API functions and `.kubb` internals are not public API.
 
 > A Hevy API key, available with **Hevy PRO**, is required.
 
@@ -495,7 +526,7 @@ can request confirmation.
 | Body measurements | `create-body-measurement` | Create a dated body measurement. |
 | Body measurements | `update-body-measurement` | Update the body measurement for an existing date. |
 
-`create-routine` requires a top-level `routine` envelope with a required `exercises` array; fields use snake_case at every level:
+`create-routine` and `update-routine` require a top-level `routine` envelope with a non-empty `exercises` array; each exercise must contain at least one set, and fields use snake_case at every level:
 
 ```json
 {
@@ -735,6 +766,15 @@ If you find a bug or have a feature request, [open an issue](https://github.com/
 Contributions are welcome. Developer setup, testing lanes, generated-client
 workflows, Cloudflare Worker deployment, and pull request rules are documented
 in [CONTRIBUTING.md](./CONTRIBUTING.md).
+
+Use mise for the pinned Node.js and pnpm versions, then run the deterministic
+unit lane. It does not need a live Hevy API key:
+
+```bash
+mise install
+mise exec -- pnpm install
+mise exec -- pnpm run test:unit
+```
 
 ## License and acknowledgements
 

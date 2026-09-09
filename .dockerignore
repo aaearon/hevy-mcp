@@ -10,13 +10,14 @@
 
 # Standalone build inputs.
 !package.json
-!package-lock.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
 !tsconfig.base.json
 !tsconfig.json
 !packages/
-# Only `packages/cli/package.json` is needed: `npm ci` validates every
-# workspace declared in `package-lock.json`, but the CLI's own sources are
-# never built or shipped by this image.
+# Only `packages/cli/package.json` is needed: `pnpm install --frozen-lockfile`
+# validates every workspace declared in `pnpm-lock.yaml`, but the CLI's own
+# sources are never built or shipped by this image.
 !packages/cli/
 !packages/cli/package.json
 !packages/hevy-client/

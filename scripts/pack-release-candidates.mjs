@@ -11,24 +11,30 @@ const packDirectory = resolve(repositoryRoot, ".nx/pack");
 await rm(packDirectory, { recursive: true, force: true });
 await mkdir(packDirectory, { recursive: true });
 
-const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const pnpm = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
 const packed = spawnSync(
-	npm,
+	pnpm,
 	[
 		"pack",
-		"--workspace=hevy-mcp",
-		"--workspace=@chrisdoc/hevy-cli",
+		"--recursive",
+		"--filter",
+		"hevy-mcp",
+		"--filter",
+		"@chrisdoc/hevy-cli",
 		"--pack-destination",
 		packDirectory,
-		"--ignore-scripts",
-		"--silent",
+		// pnpm pack has no `--ignore-scripts` flag; it is set as a config
+		// override so prepack/prepare hooks stay disabled as they were under npm.
+		"--config.ignore-scripts=true",
+		"--reporter",
+		"silent",
 	],
 	{ cwd: repositoryRoot, env: process.env, stdio: "inherit" },
 );
 if (packed.error) throw packed.error;
 if (packed.status !== 0) {
 	throw new Error(
-		`npm pack failed with ${packed.signal ? `signal ${packed.signal}` : `exit code ${packed.status ?? 1}`}`,
+		`pnpm pack failed with ${packed.signal ? `signal ${packed.signal}` : `exit code ${packed.status ?? 1}`}`,
 	);
 }
 

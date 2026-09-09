@@ -6,25 +6,48 @@
 # `npm run build:standalone`: the OAuth provider persists grants through
 # `better-sqlite3`, a native addon that cannot be bundled into a single .mjs.
 # The runtime stage therefore keeps a production `node_modules` tree.
+#
+# better-sqlite3 and native binaries under pnpm: pnpm skips dependency
+# lifecycle/build scripts (postinstall, node-gyp, prebuild-install) by
+# default -- exactly what better-sqlite3 needs to obtain its binary. This
+# fork's `pnpm-workspace.yaml` allowlists it (and the other packages already
+# vetted for scripts) via `onlyBuiltDependencies`, so both `pnpm install`
+# runs below build it instead of silently producing a broken container.
+# Verify after any dependency change or `better-sqlite3` upgrade:
+#   docker build -f Dockerfile.oauth -t hevy-oauth-test .
+#   docker run --rm hevy-oauth-test node -e \
+#     "require('better-sqlite3')('/tmp/t.db'); console.log('better-sqlite3 OK')"
+#
+# Both `pnpm install` runs pass `--node-linker=hoisted`, overriding this
+# repo's workspace-wide `virtualStoreType: global` (which shares one
+# symlinked virtual store across the maintainer's local hevy-mcp worktrees --
+# useful on a dev machine, meaningless and riskier inside a throwaway
+# container). Hoisted installs write a flat, self-contained `node_modules`
+# with no symlinks into an external store, so nothing breaks even if a future
+# change starts copying or pruning `node_modules` across stages. Today
+# neither stage copies `node_modules` across stages at all -- the runtime
+# stage runs its own install rather than reusing the build stage's -- which
+# is the primary defense; hoisted linking is defense in depth on top of it.
 
 FROM node:24-slim AS build
 
 WORKDIR /app
 
-COPY package.json package-lock.json tsconfig.base.json tsconfig.json ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json tsconfig.json ./
 COPY packages/cli/package.json packages/cli/package.json
 COPY packages/hevy-client/package.json packages/hevy-client/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/node/package.json packages/node/package.json
 COPY packages/operations/package.json packages/operations/package.json
 COPY packages/worker/package.json packages/worker/package.json
-RUN npm ci
+RUN corepack enable && corepack prepare pnpm@12.0.0 --activate \
+	&& pnpm install --frozen-lockfile --node-linker=hoisted
 
 COPY packages/hevy-client/ ./packages/hevy-client/
 COPY packages/operations/ ./packages/operations/
 COPY packages/core/ ./packages/core/
 COPY packages/node/ ./packages/node/
-RUN npm run build
+RUN pnpm --filter hevy-mcp run build
 
 FROM node:24-slim AS runtime
 
@@ -32,17 +55,25 @@ ENV NODE_ENV=production
 ENV OAUTH_DB_PATH=/data/oauth.db
 WORKDIR /app
 
-# better-sqlite3 ships prebuilt binaries; python/build tools are only needed
-# when a prebuild is unavailable for the platform.
-COPY package.json package-lock.json ./
+# `--filter hevy-mcp...` selects the `hevy-mcp` (packages/node) workspace plus
+# every workspace it depends on (@hevy-mcp/core, @hevy-mcp/operations,
+# @hevy-mcp/hevy-client) -- the pnpm equivalent of npm's
+# `--workspace hevy-mcp --include-workspace-root`. `--frozen-lockfile` still
+# validates the whole workspace against pnpm-lock.yaml, so every package.json
+# under packages/* must be present even though only four are actually
+# installed; packages/cli and packages/worker are copied for that check only,
+# the same as the prior npm-based image.
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY packages/cli/package.json packages/cli/package.json
 COPY packages/hevy-client/package.json packages/hevy-client/package.json
 COPY packages/core/package.json packages/core/package.json
 COPY packages/node/package.json packages/node/package.json
 COPY packages/operations/package.json packages/operations/package.json
 COPY packages/worker/package.json packages/worker/package.json
-RUN npm ci --omit=dev --workspace hevy-mcp --include-workspace-root \
-	&& npm cache clean --force
+RUN corepack enable && corepack prepare pnpm@12.0.0 --activate \
+	&& pnpm install --frozen-lockfile --prod --node-linker=hoisted \
+		--filter hevy-mcp... --include-workspace-root \
+	&& rm -rf /root/.local/share/pnpm /root/.cache/pnpm
 
 COPY --from=build /app/packages/node/dist/ ./packages/node/dist/
 

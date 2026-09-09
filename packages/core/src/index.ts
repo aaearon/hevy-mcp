@@ -19,6 +19,8 @@ export {
 
 export {
 	createHevyMcpServer,
+	createHevyMcpServerEffect,
+	HevyMcpServerConstructionError,
 	type CreateHevyMcpServerOptions,
 	type HevyClientFactoryContext,
 } from "./server.js";
@@ -66,3 +68,36 @@ export {
 	MCP_SPAN_CATEGORIES,
 	type McpSpanCategory,
 } from "./utils/tool-taxonomy.js";
+export {
+	ApiError,
+	ClientNotInitializedError,
+	EmptyMeasurementUpdateError,
+	NetworkError,
+	NotFoundError,
+	OperationUnavailableError,
+	PaginationMismatchError,
+	RateLimitError,
+	TemplatesSearchValidationError,
+	ToolInputValidationError,
+	TrainingSummaryDataError,
+	TrainingSummaryValidationError,
+	ValidationError,
+	WorkoutPayloadError,
+	WorkoutPrivacyError,
+} from "./effect-errors.js";
+export type { CoreToolError, OperationDomainError } from "./effect-errors.js";
+export type { ToolEffectHandler } from "./tools/tool-runtime.js";
+export {
+	ExerciseTemplateCatalogService,
+	HevyClientService,
+	HevyOperationsService,
+	ToolExecutionContextService,
+	ToolObserverService,
+} from "./effect-services.js";
+export {
+	createCoreServiceLayer,
+	createToolObserverLayer,
+	type CoreServiceLayerOptions,
+	type CoreServiceIdentifiers,
+	type CoreServiceLayer,
+} from "./effect-layer.js";

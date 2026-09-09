@@ -250,6 +250,7 @@ export function runCommand(
 	{
 		timeout = DEFAULT_COMMAND_TIMEOUT_MS,
 		killSignal = DEFAULT_COMMAND_KILL_SIGNAL,
+		gracePeriodMs = SIGKILL_GRACE_PERIOD_MS,
 	} = {},
 ) {
 	const commandTimeout =
@@ -313,7 +314,7 @@ export function runCommand(
 							if (child.exitCode === null && child.signalCode === null) {
 								child.kill("SIGKILL");
 							}
-						}, SIGKILL_GRACE_PERIOD_MS);
+						}, gracePeriodMs);
 					}
 				}
 			},
@@ -370,13 +371,21 @@ async function createFixtureRepository(normalizedSpec) {
 			recursive: true,
 			force: true,
 		});
+		// Preserve workspace dependency resolution for the copied package.
+		// The fixture intentionally excludes node_modules from the copy, but
+		// its curated barrel TypeScript check still needs declared dependencies.
+		await symlink(
+			resolve(clientRoot, "node_modules"),
+			resolve(fixtureClient, "node_modules"),
+			"junction",
+		);
 		await cp(
 			resolve(repositoryRoot, "tsconfig.base.json"),
 			resolve(root, "tsconfig.base.json"),
 		);
 		await cp(
-			resolve(repositoryRoot, ".oxfmtrc.json"),
-			resolve(root, ".oxfmtrc.json"),
+			resolve(repositoryRoot, "oxfmt.config.ts"),
+			resolve(root, "oxfmt.config.ts"),
 		);
 		// Kubb loads the copied config from the temporary tree, so expose the
 		// repository dependencies there without copying the entire installation.
@@ -406,7 +415,7 @@ export async function checkGeneratedClient() {
 	let fixture;
 	try {
 		fixture = await createFixtureRepository(normalized);
-		const kubb = await resolvePackageExecutable("@kubb/cli", "kubb");
+		const kubb = await resolvePackageExecutable("kubb", "kubb");
 		const oxfmt = await resolvePackageExecutable("oxfmt", "oxfmt");
 		await runCommand(
 			kubb.command,

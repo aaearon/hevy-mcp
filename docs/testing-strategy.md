@@ -139,7 +139,7 @@ This strategy builds on completed work rather than restarting it:
 | Critical | Production output schemas and live canary schemas have separate ownership.      | Production schemas in `packages/core/src/utils/output-schemas.ts`; projections and response assembly in `formatters.ts` and `response-contracts.ts`; test-local schemas in `tests/integration/hevy-mcp.integration.test.ts`; July 10 run and PR #594. | A live payload can satisfy a permissive canary assertion but fail SDK output validation, or tests can drift away from production. |
 | High     | Mocked MCP coverage is representative, not a complete per-tool contract matrix. | Two files in `tests/integration/mocked/`; 23 advertised tools; 16 mocked tests at baseline.                                                                                                                                                           | Uncovered tools, invalid inputs, error classes, annotations, or output parity can regress in deterministic PR lanes.              |
 | High     | Coverage excludes unimported files by default.                                  | `vitest.config.ts` has no explicit `coverage.include`; separate unit/mocked LCOV reports.                                                                                                                                                             | A high percentage can coexist with untested production modules, making thresholds misleading.                                     |
-| High     | No deterministic packed-tarball stdio boundary exists.                          | Nightly uses published `@latest` or built source; `prepack` exists, but no PR lane installs the exact `npm pack` artifact.                                                                                                                            | Packaging, `files`, shebang, exports, manifest, or dependency errors can escape source tests.                                     |
+| High     | No deterministic packed-tarball stdio boundary exists.                          | Nightly uses published `@latest` or built source; `prepack` exists, but no PR lane installs the exact `pnpm pack` artifact.                                                                                                                           | Packaging, `files`, shebang, exports, manifest, or dependency errors can escape source tests.                                     |
 | High     | Runtime declarations disagree.                                                  | `.nvmrc` is 24; CI tests 24/26; `AGENTS.md` says >=24; `package.json` says >=20.                                                                                                                                                                      | Users may run an allowed but untested runtime, or maintainers may unintentionally break a claimed support range.                  |
 | Medium   | MCP process and lifecycle coverage is selective.                                | In-memory calls and nightly smoke exist; no central matrix for capability negotiation, close behavior, invalid protocol calls, or list notifications.                                                                                                 | SDK upgrades or registration changes can break protocol behavior beyond successful tool calls.                                    |
 | Medium   | Stateful and sequence behavior lacks a contract suite.                          | Exercise-template cache and utilities have unit tests, but no systematic multi-call MCP scenarios.                                                                                                                                                    | Cache isolation, invalidation, repeated calls, and concurrent calls may corrupt state or leak between clients.                    |
@@ -250,7 +250,7 @@ of every tool, resource, and prompt. For each applicable item it must validate:
    redactions, and the contract behavior it protects. Never commit API keys or
    identifying user data.
 3. **Commit OpenAPI changes intentionally.** Changes to `openapi-spec.json` must
-   include the regenerated Kubb diff from `npm run build:client`, a concise
+   include the regenerated Kubb diff from `pnpm run build:client`, a concise
    upstream-change summary, and tests for any repository-owned formatter/schema
    changes. Generated files remain reviewable output, not manual edit targets.
 4. **Review generated client regeneration.** Review endpoint additions/removals,
@@ -267,15 +267,15 @@ of every tool, resource, and prompt. For each applicable item it must validate:
 
 ## Target layered architecture and test pyramid
 
-| Layer                       | Purpose                                                    |                      Pull request                      |          Nightly/manual          |                      Release                       |
-| --------------------------- | ---------------------------------------------------------- | :----------------------------------------------------: | :------------------------------: | :------------------------------------------------: |
-| Static/build                | Format, lint, types, manifest, build, changeset            |              Required, Node policy matrix              | Optional scheduled compatibility |                      Required                      |
-| Unit/component              | Pure logic, tools with fakes, schemas, and errors          |                        Required                        |                —                 |          Required through PR/main result           |
-| Mocked HTTP + in-memory MCP | Complete deterministic MCP contract over Nock              |                  Required, no secrets                  |    Optional diagnostic rerun     |          Required through PR/main result           |
-| Built stdio                 | Spawn `dist/cli.mjs`; protocol purity and lifecycle        |                Required on primary Node                |  Optional compatibility matrix   |                      Required                      |
-| Packed tarball smoke        | `npm pack`, install tarball, spawn binary, inspect package |                Required on primary Node                |  Optional npm/Bun compatibility  |                      Required                      |
-| Live Hevy canary            | Read-only provider drift and credentialed behavior         |             Never in deterministic PR lane             |       Scheduled and manual       | Required before publish for selected source checks |
-| Performance trend           | Mocked startup, latency, concurrency, sequential stability | Record initially; gate only regressions after baseline |          Trend artifact          |             Informational until stable             |
+| Layer                       | Purpose                                                     |                      Pull request                      |          Nightly/manual          |                      Release                       |
+| --------------------------- | ----------------------------------------------------------- | :----------------------------------------------------: | :------------------------------: | :------------------------------------------------: |
+| Static/build                | Format, lint, types, manifest, build, changeset             |              Required, Node policy matrix              | Optional scheduled compatibility |                      Required                      |
+| Unit/component              | Pure logic, tools with fakes, schemas, and errors           |                        Required                        |                —                 |          Required through PR/main result           |
+| Mocked HTTP + in-memory MCP | Complete deterministic MCP contract over Nock               |                  Required, no secrets                  |    Optional diagnostic rerun     |          Required through PR/main result           |
+| Built stdio                 | Spawn `dist/cli.mjs`; protocol purity and lifecycle         |                Required on primary Node                |  Optional compatibility matrix   |                      Required                      |
+| Packed tarball smoke        | `pnpm pack`, install tarball, spawn binary, inspect package |                Required on primary Node                |  Optional npm/Bun compatibility  |                      Required                      |
+| Live Hevy canary            | Read-only provider drift and credentialed behavior          |             Never in deterministic PR lane             |       Scheduled and manual       | Required before publish for selected source checks |
+| Performance trend           | Mocked startup, latency, concurrency, sequential stability  | Record initially; gate only regressions after baseline |          Trend artifact          |             Informational until stable             |
 
 The live suite complements deterministic tests; it must not compensate for
 missing mocks. The packed tarball lane validates the candidate artifact, while
@@ -295,7 +295,7 @@ these names rather than duplicating selectors:
 	"test:contract": "vitest run <current contract baseline>",
 	"test:stdio": "vitest run <current stdio/process baseline>",
 	"test:pack": "nx run repository:test:pack",
-	"test:live": "node --env-file-if-exists=.env scripts/run-live-vitest.mjs HEVY_API_KEY tests/integration/hevy-mcp.integration.test.ts",
+	"test:live": "mise exec -- node scripts/run-live-vitest.mjs HEVY_API_KEY tests/integration/hevy-mcp.integration.test.ts",
 	"test:nightly": "node --env-file-if-exists=.env tests/nightly/test_hevy_mcp.mjs",
 	"test:performance": "nx run repository:test:performance",
 	"test:pr": "nx run repository:test:pr"
@@ -318,7 +318,7 @@ an intentional live job into a skipped success.
 | Unit compatibility      | Additional supported/tested Nodes                | None                                       | Blocking PR                         | Concise log                                 |
 | Mocked MCP contract     | Primary + compatibility Nodes                    | None                                       | Blocking PR                         | JUnit + mocked LCOV                         |
 | Built stdio             | Primary Node                                     | None; child-scoped loopback fixture server | Blocking PR                         | Redacted stderr on failure                  |
-| Packed npm tarball      | Primary Node; add Bun only if support is claimed | None; child-scoped loopback fixture server | Blocking PR                         | Tarball file list, size, binary result      |
+| Packed pnpm tarball     | Primary Node; add Bun only if support is claimed | None; child-scoped loopback fixture server | Blocking PR                         | Tarball file list, size, binary result      |
 | Performance trend       | Primary Node, stable hosted runner class         | None                                       | Non-gating for first 2–4 weeks      | JSON summary + history artifact             |
 | Live source canary      | `.nvmrc` Node                                    | `HEVY_API_KEY`                             | Nightly/manual and release blocking | Redacted category summary                   |
 | Published package smoke | `npx` and `bunx`                                 | `HEVY_API_KEY`                             | Nightly blocking/alerting           | Package version, launcher, category summary |
@@ -563,12 +563,12 @@ duplicated contract logic across live and mocked suites.
   - Live suite stays read-only and skips only in non-live contexts; an explicit
     live job without credentials fails clearly.
 
-### TS-05 — Deterministic npm-pack + spawned-stdio boundary
+### TS-05 — Deterministic pnpm-pack + spawned-stdio boundary
 
-- **Tracking issue:** [TS-05 — Deterministic npm-pack + spawned-stdio boundary](https://github.com/chrisdoc/hevy-mcp/issues/609).
+- **Tracking issue:** [TS-05 — Deterministic pnpm-pack + spawned-stdio boundary](https://github.com/chrisdoc/hevy-mcp/issues/609).
 - **Objective:** Test the exact candidate package and real stdio framing before
   merge/release without contacting Hevy.
-- **Scope:** Build; `npm pack`; inspect tarball contents; install in a temporary
+- **Scope:** Build; `pnpm pack`; inspect tarball contents; install in a temporary
   project; spawn the packaged binary; initialize/list/call/close against a
   subprocess-compatible loopback fixture server; provide a safe
   launch/configuration seam scoped to the test child process; assert stdout
@@ -667,7 +667,7 @@ The strategy is implemented when:
 - Every MCP tool has deterministic contract coverage, with prompts/resources and
   lifecycle/capability behavior also covered.
 - Production output schemas are shared by mocked and live assertions.
-- Pull requests validate built stdio and the exact `npm pack` artifact without
+- Pull requests validate built stdio and the exact `pnpm pack` artifact without
   secrets or live network.
 - Live tests are read-only, categorized, scheduled/manual/release-only, and
   safely redacted.
@@ -720,7 +720,7 @@ The strategy is implemented when:
 - [MCP 2025-11-25 lifecycle](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle)
 - [MCP 2025-11-25 tools](https://modelcontextprotocol.io/specification/2025-11-25/server/tools)
 - [MCP TypeScript SDK](https://github.com/modelcontextprotocol/typescript-sdk)
-- [`npm pack` documentation](https://docs.npmjs.com/cli/v11/commands/npm-pack/)
+- [`pnpm pack` documentation](https://pnpm.io/cli/pack)
 - [Codecov status checks](https://docs.codecov.com/docs/commit-status)
 - [Nock repository and documentation](https://github.com/nock/nock)
 - [How Pact works](https://docs.pact.io/getting_started/how_pact_works)
