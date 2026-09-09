@@ -594,7 +594,7 @@ export function validateArtifactProvenance(
 			"packages/hevy-client/**",
 			"cloudflare.config.ts",
 			"package.json",
-			"package-lock.json",
+			"pnpm-lock.yaml",
 			"packages/worker/package.json",
 			"packages/core/package.json",
 			"packages/hevy-client/package.json",
@@ -602,7 +602,7 @@ export function validateArtifactProvenance(
 		"docker-image": [
 			"Dockerfile",
 			"package.json",
-			"package-lock.json",
+			"pnpm-lock.yaml",
 			"tsconfig.base.json",
 			"tsconfig.json",
 			"packages/hevy-client/package.json",

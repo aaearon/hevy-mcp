@@ -4,6 +4,16 @@ Read this file before changing the repository. Keep this file focused on
 agent-only rules; use the linked documents and repository configuration as the
 source of truth for detailed commands and changing facts.
 
+# Learning more about Effect
+
+This repository uses the Effect Typescript library.
+
+Before writing any Effect code, first read `node_modules/effect/AGENTS.md`
+**completely**, and follow the links in the file when required.
+
+If you need to learn more about particular Effect apis and concepts that the
+guide doesn't cover, search through the source code in `node_modules/effect/src`.
+
 ## Start in a fresh worktree
 
 1. Inspect the checkout before touching it:
@@ -45,7 +55,7 @@ Git hooks enabled. Fix hook failures instead of bypassing them.
 - `CONTRIBUTING.md` owns development setup, Node policy, Worker operations,
   release policy, and the required validation baseline. Read the relevant
   section before that class of change.
-- `docs/test-lanes.md` owns named test lanes. Prefer the `npm run test:*`
+- `docs/test-lanes.md` owns named test lanes. Prefer the `pnpm run test:*`
   aliases over copying raw Vitest selectors.
 - `repository/topology.json` owns workspace boundaries and release bundles.
 - `package.json` owns the current command names. Inspect it instead of
@@ -55,22 +65,22 @@ Git hooks enabled. Fix hook failures instead of bypassing them.
 
 ## Runtime and package manager
 
-Use mise for Node.js and npm. The repository pins Node.js 24 and npm 12 in
+Use mise for Node.js and pnpm. The repository pins Node.js 24 and pnpm 12 in
 `mise.toml`; install the pinned tools before running development commands:
 
 ```bash
 mise install
 ```
 
-Run Node.js and npm commands through mise so they do not fall back to system
-installations. Use `mise exec -- npm ...`, `mise exec -- npx ...`, and
+Run Node.js and pnpm commands through mise so they do not fall back to system
+installations. Use `mise exec -- pnpm ...`, `mise exec -- pnpm exec ...`, and
 `mise exec -- node ...` in setup, validation, and troubleshooting commands.
 
-Git hooks are managed by hk. After `mise install`, enable them once per clone
-with:
+Git hooks are managed by lefthook. After `mise install`, enable them once per
+clone with:
 
 ```bash
-mise exec hk -- hk install --mise
+mise exec -- lefthook install
 ```
 
 ## Repository shape and boundaries
@@ -106,10 +116,10 @@ Treat every file under `packages/hevy-client/src/generated/` as generated
 output. Change the OpenAPI source or the Kubb configuration, then regenerate:
 
 ```bash
-mise exec -- npm run openapi          # refreshes the upstream spec; needs network access
-mise exec -- npm run build:client
-mise exec -- npm run check:openapi
-mise exec -- npm run check:generated
+mise exec -- pnpm run openapi          # refreshes the upstream spec; needs network access
+mise exec -- pnpm run build:client
+mise exec -- pnpm run check:openapi
+mise exec -- pnpm run check:generated
 ```
 
 Review the complete generated diff. Consumers use the curated
@@ -133,7 +143,7 @@ pattern when adding or changing one:
 4. Register the definition through `tools/register.ts`, use the existing
    `ToolRuntime` error/observation path, and add a co-located test.
 5. Measure token cost when tool descriptions or schemas materially change:
-   `npm run measure:tokens`.
+   `pnpm run measure:tokens`.
 
 Handlers receive inferred arguments. Keep manual argument casts, `any`, and
 `unknown` out of tool-handler code. Reuse the existing error policy,
@@ -160,7 +170,7 @@ before changing deployment, origin, authentication, or OAuth behavior.
 Before every commit, classify the diff and run:
 
 ```bash
-npm run check:changeset
+pnpm run check:changeset
 ```
 
 A change under `packages/*`, a runtime-visible behavior change, a workspace
@@ -193,7 +203,7 @@ release/deployment identity. Node and CLI are public. Merge the automated
 `changeset-release/main` Version Packages pull request on the routine cadence
 (weekly by default); reserve off-cycle releases for security fixes and
 high-impact user-facing bugs. An entirely no-release, repository-only change
-may use an eligible empty Changeset via `npx changeset --empty`; docs, CI,
+may use an eligible empty Changeset via `pnpm exec changeset --empty`; docs, CI,
 repository-only tests/tooling, and chores qualify only when no release trigger
 is present. An empty Changeset never accompanies a release trigger. Stage the
 Changeset before committing.
@@ -204,42 +214,42 @@ For source changes, run the narrow relevant lane and the unit suite. Before a
 pull request, use the repository baseline from `CONTRIBUTING.md`:
 
 ```bash
-mise exec -- npm run check
-mise exec -- npm run check:types
-mise exec -- npm run build
-mise exec -- npm run test:pr
-mise exec -- npm run test:performance
-mise exec -- npm run check:changeset
+mise exec -- pnpm run check
+mise exec -- pnpm run check:types
+mise exec -- pnpm run build
+mise exec -- pnpm run test:pr
+mise exec -- pnpm run test:performance
+mise exec -- pnpm run check:changeset
 ```
 
 Useful focused checks include:
 
-- `npm run test:stdio` after MCP SDK, stdio, lifecycle, or Node transport
+- `pnpm run test:stdio` after MCP SDK, stdio, lifecycle, or Node transport
   changes. `packages/node/src/utils/stdio-parsing.ts` uses private MCP
   SDK fields (`_readBuffer`/`_buffer`) to skip malformed stdin lines instead of
   dropping the connection, so inspect compatibility after every SDK upgrade.
-- `npm run test:worker`, `npm run test:worker-http`, and
-  `npm run worker:dry-run` after Worker changes.
-- `npm run test:pack` or `npm run test:pack:cli` after package entry point,
+- `pnpm run test:worker`, `pnpm run test:worker-http`, and
+  `pnpm run worker:dry-run` after Worker changes.
+- `pnpm run test:pack` or `pnpm run test:pack:cli` after package entry point,
   binary, manifest, or published-file changes.
-- `npm run check:server-manifest` after server metadata changes.
-- `npm run check:boundaries` after workspace dependency or runtime-boundary
+- `pnpm run check:server-manifest` after server metadata changes.
+- `pnpm run check:boundaries` after workspace dependency or runtime-boundary
   changes.
 
-`npm run test:unit` is the deterministic default for local source work.
-`npm test` builds first and runs broad Vitest discovery; it is not a substitute
+`pnpm run test:unit` is the deterministic default for local source work.
+`pnpm test` builds first and runs broad Vitest discovery; it is not a substitute
 for the named PR lanes. Integration, live, nightly, and live Worker commands
 are credential-gated and should be run only when the relevant safe credentials
 and environment are available.
 
 Known environment-dependent operations:
 
-- `npm run openapi` needs network access to the upstream Hevy API and may fail
+- `pnpm run openapi` needs network access to the upstream Hevy API and may fail
   with `ENOTFOUND api.hevyapp.com` in a sandbox.
-- `npm run inspect` may time out without a correctly configured MCP client or
+- `pnpm run inspect` may time out without a correctly configured MCP client or
   browser environment.
 
-Treat all other documented checks, including `npm run check:types`, as real
+Treat all other documented checks, including `pnpm run check:types`, as real
 failures to investigate.
 
 ## CI deviations from upstream (fork-specific)
@@ -299,7 +309,14 @@ Rules for maintainers and agents:
   `user.hash` span attribute. Only `TELEMETRY_ARGUMENT_KEYS` survives in that
   file, because `tool-runtime.ts` uses it as an argument allowlist.
 - **Every upstream merge must drop the following surfaces.** Upstream keeps
-  regrowing them; as of `hevy-mcp@6.1.7` that means:
+  regrowing them; as of `hevy-mcp@6.1.11` that means:
+  - `packages/node/src/utils/startup-errors.ts`: a new upstream file that
+    arrives WITHOUT a merge conflict and imports `flushTelemetry` from
+    `./telemetry.js`, re-wiring telemetry into the Node startup path. This is
+    the vector to watch for: a clean merge that evades both the conflict list
+    and the guard test below. Keep the file (its `NodeCliArgumentError` /
+    `InvalidHevyApiKeyError` classes are a genuine improvement), but drop the
+    `flushTelemetry` import and default its `flush` option to an inert no-op;
   - the `@sentry/*` / `@opentelemetry/*` hunks and any reintroduced
     `scheduleUpdateCheck` / `registry.npmjs.org` code, including
     `packages/node/src/utils/{telemetry,metrics,failure-reporter,
@@ -338,6 +355,14 @@ version-check,user-hash}.ts` (with co-located tests), the Sentry rollup plugin
   `@sentry/` and `@opentelemetry/` as forbidden imports.
 - `HEVY_MCP_DEBUG=1` is the only sanctioned diagnostic. It writes to stderr and
   must never leave the machine.
+- **`entire` is deliberately excluded.** Upstream ships `entire` (a
+  proprietary tool by entireio) wired into lefthook hooks; it uploads
+  developer prompts and session transcripts to its own server via a
+  `pre-push` checkpoint step. This fork removes it under the same "no new
+  outbound hosts" policy. The removal covers `mise.toml`, `mise.lock`,
+  `lefthook.yml`, `.entire/`, `.pi/extensions/entire/`,
+  `.agents/skills/using-entire/`, and `.lefthook/pre-push/entire.sh`. Every
+  upstream merge must drop it again.
 
 ### The guard test is a tripwire, not a proof
 
@@ -437,8 +462,9 @@ curl -s -o /dev/null -w "%{http_code}" -X POST http://localhost:3000/mcp \
 
 `Dockerfile.oauth` + `docker-compose.yml` (port `8012` → `8000`, named volume
 at `/data`, `OAUTH_DB_PATH=/data/oauth.db`) provide the deployment.
-`deploy/traefik-hevy-mcp.yml` is the reverse-proxy route. Upstream's own
-`Dockerfile` is untouched: it uses `npm run build:standalone`, which cannot
+`deploy/traefik-hevy-mcp.yml` is the reverse-proxy route. The plain
+`Dockerfile` keeps upstream's build strategy: it uses
+`pnpm --filter hevy-mcp run build:standalone`, which cannot
 bundle `better-sqlite3` (a native addon), so `Dockerfile.oauth` uses the normal
 build plus a production `node_modules` tree instead. For the same reason
 `oauth-provider.ts` loads `better-sqlite3` lazily through `createRequire`, which
@@ -450,3 +476,130 @@ Before reporting completion, confirm that the diff is focused, tests and
 checks for the changed paths passed (or their limitations are explicit),
 generated output is synchronized, the release requirement is satisfied, and
 `git status --short --branch` shows only intended files on the feature branch.
+
+# Ultracite Code Standards
+
+This project uses **Ultracite**, a zero-config preset that enforces strict code quality standards through automated formatting and linting.
+
+## Quick Reference
+
+- **Format code**: `pnpm run fix`
+- **Check for issues**: `pnpm run check`
+- **Diagnose setup**: `pnpm exec ultracite doctor`
+
+Oxlint + Oxfmt (the underlying engine) provides robust linting and formatting. Most issues are automatically fixable.
+
+---
+
+## Core Principles
+
+Write code that is **accessible, performant, type-safe, and maintainable**. Focus on clarity and explicit intent over brevity.
+
+### Type Safety & Explicitness
+
+- Use explicit types for function parameters and return values when they enhance clarity
+- Prefer `unknown` over `any` when the type is genuinely unknown
+- Use const assertions (`as const`) for immutable values and literal types
+- Leverage TypeScript's type narrowing instead of type assertions
+- Use meaningful variable names instead of magic numbers - extract constants with descriptive names
+
+### Modern JavaScript/TypeScript
+
+- Use arrow functions for callbacks and short functions
+- Prefer `for...of` loops over `.forEach()` and indexed `for` loops
+- Use optional chaining (`?.`) and nullish coalescing (`??`) for safer property access
+- Prefer template literals over string concatenation
+- Use destructuring for object and array assignments
+- Use `const` by default, `let` only when reassignment is needed, never `var`
+
+### Async & Promises
+
+- Always `await` promises in async functions - don't forget to use the return value
+- Use `async/await` syntax instead of promise chains for better readability
+- Handle errors appropriately in async code with try-catch blocks
+- Don't use async functions as Promise executors
+
+### React & JSX
+
+- Use function components over class components
+- Call hooks at the top level only, never conditionally
+- Specify all dependencies in hook dependency arrays correctly
+- Use the `key` prop for elements in iterables (prefer unique IDs over array indices)
+- Nest children between opening and closing tags instead of passing as props
+- Don't define components inside other components
+- Use semantic HTML and ARIA attributes for accessibility:
+  - Provide meaningful alt text for images
+  - Use proper heading hierarchy
+  - Add labels for form inputs
+  - Include keyboard event handlers alongside mouse events
+  - Use semantic elements (`<button>`, `<nav>`, etc.) instead of divs with roles
+
+### Error Handling & Debugging
+
+- Remove `console.log`, `debugger`, and `alert` statements from production code
+- Throw `Error` objects with descriptive messages, not strings or other values
+- Use `try-catch` blocks meaningfully - don't catch errors just to rethrow them
+- Prefer early returns over nested conditionals for error cases
+
+### Code Organization
+
+- Keep functions focused and under reasonable cognitive complexity limits
+- Extract complex conditions into well-named boolean variables
+- Use early returns to reduce nesting
+- Prefer simple conditionals over nested ternary operators
+- Group related code together and separate concerns
+
+### Security
+
+- Add `rel="noopener"` when using `target="_blank"` on links
+- Avoid `dangerouslySetInnerHTML` unless absolutely necessary
+- Don't use `eval()` or assign directly to `document.cookie`
+- Validate and sanitize user input
+
+### Performance
+
+- Avoid spread syntax in accumulators within loops
+- Use top-level regex literals instead of creating them in loops
+- Prefer specific imports over namespace imports
+- Avoid barrel files (index files that re-export everything)
+- Use proper image components (e.g., Next.js `<Image>`) over `<img>` tags
+
+### Framework-Specific Guidance
+
+**Next.js:**
+
+- Use Next.js `<Image>` component for images
+- Use `next/head` or App Router metadata API for head elements
+- Use Server Components for async data fetching instead of async Client Components
+
+**React 19+:**
+
+- Use ref as a prop instead of `React.forwardRef`
+
+**Solid/Svelte/Vue/Qwik:**
+
+- Use `class` and `for` attributes (not `className` or `htmlFor`)
+
+---
+
+## Testing
+
+- Write assertions inside `it()` or `test()` blocks
+- Avoid done callbacks in async tests - use async/await instead
+- Don't use `.only` or `.skip` in committed code
+- Keep test suites reasonably flat - avoid excessive `describe` nesting
+
+## When Oxlint + Oxfmt Can't Help
+
+Oxlint + Oxfmt's linter will catch most issues automatically. Focus your attention on:
+
+1. **Business logic correctness** - Oxlint + Oxfmt can't validate your algorithms
+2. **Meaningful naming** - Use descriptive names for functions, variables, and types
+3. **Architecture decisions** - Component structure, data flow, and API design
+4. **Edge cases** - Handle boundary conditions and error states
+5. **User experience** - Accessibility, performance, and usability considerations
+6. **Documentation** - Add comments for complex logic, but prefer self-documenting code
+
+---
+
+Most formatting and common issues are automatically fixed by Oxlint + Oxfmt. Run `pnpm run fix` before committing to ensure compliance.

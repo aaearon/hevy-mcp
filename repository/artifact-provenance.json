@@ -15,7 +15,7 @@
 			"id": "repository-manifests",
 			"paths": [
 				"package.json",
-				"package-lock.json",
+				"pnpm-lock.yaml",
 				"tsconfig.base.json",
 				"tsconfig.json"
 			],
@@ -426,7 +426,7 @@
 				"packages/hevy-client/**",
 				"cloudflare.config.ts",
 				"package.json",
-				"package-lock.json",
+				"pnpm-lock.yaml",
 				"packages/worker/package.json",
 				"packages/core/package.json",
 				"packages/operations/package.json",
@@ -450,7 +450,7 @@
 			"sourcePaths": [
 				"Dockerfile",
 				"package.json",
-				"package-lock.json",
+				"pnpm-lock.yaml",
 				"tsconfig.base.json",
 				"tsconfig.json",
 				"packages/hevy-client/package.json",

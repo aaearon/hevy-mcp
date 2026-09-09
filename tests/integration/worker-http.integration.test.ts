@@ -3,7 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { networkInterfaces, tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import {
 	Client,
@@ -125,13 +125,14 @@ function spawnWrangler(workerPort: number, inspectorPort: number): void {
 	}
 	workerBaseUrl = `http://${LOOPBACK}:${workerPort}`;
 	wranglerSpawnError = undefined;
-	const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
+	const wranglerBin = resolve(
+		process.cwd(),
+		"node_modules/wrangler/bin/wrangler.js",
+	);
 	wrangler = spawn(
-		npmCommand,
+		process.execPath,
 		[
-			"exec",
-			"--",
-			"wrangler",
+			wranglerBin,
 			"dev",
 			"--config",
 			"wrangler.test.jsonc",
@@ -153,6 +154,8 @@ function spawnWrangler(workerPort: number, inspectorPort: number): void {
 			wranglerPersistDir,
 			"--var",
 			`HEVY_API_BASE_URL:${fakeHevyBaseUrl}`,
+			"--var",
+			"HEVY_VALIDATION_RETRY_DELAYS_MS:1,2",
 		],
 		{
 			cwd: process.cwd(),
@@ -751,6 +754,19 @@ describe.sequential("Wrangler-backed Worker HTTP integration", () => {
 		expect(invalid.status).toBe(401);
 		expect(invalid.headers.get("www-authenticate")).toBe("Bearer");
 		expect(unavailable.status).toBe(502);
+		const unavailableBody = await unavailable.json();
+		expect(unavailableBody).toEqual({
+			error: {
+				message: "Unable to validate the Hevy API key",
+				outcome: "terminal_failure",
+				phase: "response-content",
+				operation_safety: "read",
+				commit_state: "not_sent",
+				safe_to_retry: false,
+				code: "HEVY_RETRY_EXHAUSTED",
+				status: 503,
+			},
+		});
 		// A 401 is never retried; a 503 is transient and retried twice (three
 		// attempts total) before the validation client gives up.
 		expect(hevyRequests.map((request) => request.apiKey)).toEqual([
@@ -759,6 +775,9 @@ describe.sequential("Wrangler-backed Worker HTTP integration", () => {
 			UPSTREAM_FAILURE_API_KEY,
 			UPSTREAM_FAILURE_API_KEY,
 		]);
+		expect(JSON.stringify(unavailableBody)).not.toMatch(
+			/data|headers|responseError|cause|stack|Effect|secret/i,
+		);
 	});
 
 	it("returns MCP errors for unacceptable, unsupported, and invalid JSON requests", async () => {

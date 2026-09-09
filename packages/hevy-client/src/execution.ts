@@ -4,7 +4,6 @@
  * The client owns this vocabulary so adapters can only present the same
  * outcome; they cannot accidentally grow incompatible retry/error taxonomies.
  */
-
 export type HevyOperationSafety =
 	| "read"
 	| "idempotent-write"
@@ -41,11 +40,14 @@ export interface HevyExecutionOutcomeDetails {
 /** Caller-owned control for one logical operation (not one retry attempt). */
 export interface HevyExecutionControl {
 	readonly signal?: AbortSignal;
-	/** Absolute epoch milliseconds. It is never reset for a retry or page. */
+	/** Absolute epoch milliseconds supplied by the caller; never reset. */
 	readonly deadline?: number;
 }
 
-export interface HevyExecutionOptions extends HevyExecutionControl {}
+export interface HevyExecutionOptions extends HevyExecutionControl {
+	/** Per-operation timeout in milliseconds; overrides the client default. */
+	readonly timeoutMs?: number;
+}
 
 /** Request options shared by the curated client and generated adapters. */
 export interface HevyRequestOptions extends HevyExecutionOptions {}
@@ -93,54 +95,6 @@ export function commitStateFor(
 	if (safety === "read") return confirmed ? "confirmed" : "not_sent";
 	if (confirmed) return "confirmed";
 	return phase === "before-dispatch" ? "not_sent" : "unknown";
-}
-
-export interface HevyExecutionSignal {
-	readonly signal: AbortSignal;
-	readonly abort: (reason?: Error | string | DOMException) => void;
-	readonly cleanup: () => void;
-	readonly deadlineTriggered: () => boolean;
-}
-
-/**
- * Build a signal that follows both caller cancellation and one absolute
- * deadline. The returned cleanup function must be called when the operation
- * completes so a long-lived server does not retain timers/listeners.
- */
-export function createExecutionSignal(
-	control: HevyExecutionControl,
-): HevyExecutionSignal {
-	const controller = new AbortController();
-	let deadlineTriggered = false;
-	const abortFromCaller = () => {
-		if (!controller.signal.aborted) controller.abort(control.signal?.reason);
-	};
-	if (control.signal?.aborted) abortFromCaller();
-	else
-		control.signal?.addEventListener("abort", abortFromCaller, { once: true });
-	let timer: ReturnType<typeof setTimeout> | undefined;
-	if (control.deadline !== undefined) {
-		const delay = Math.max(0, control.deadline - Date.now());
-		timer = setTimeout(() => {
-			deadlineTriggered = true;
-			if (!controller.signal.aborted) {
-				controller.abort(
-					new DOMException("Operation deadline exceeded", "TimeoutError"),
-				);
-			}
-		}, delay);
-	}
-	return {
-		signal: controller.signal,
-		abort: (reason?: Error | string | DOMException) => {
-			if (!controller.signal.aborted) controller.abort(reason);
-		},
-		cleanup: () => {
-			if (timer !== undefined) clearTimeout(timer);
-			control.signal?.removeEventListener("abort", abortFromCaller);
-		},
-		deadlineTriggered: () => deadlineTriggered,
-	};
 }
 
 export function isAbortLike<T>(error: T): boolean {

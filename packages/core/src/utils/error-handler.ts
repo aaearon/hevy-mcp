@@ -13,6 +13,8 @@ import {
 } from "../execution.js";
 import { createSafeErrorDiagnostic } from "./error-policy.js";
 import type { RuntimeValue } from "./type-predicates.js";
+import { logCoreError } from "./core-logger.js";
+import type { McpClientLogger } from "./mcp-client-logger-types.js";
 
 export { ErrorType } from "./error-policy.js";
 export type { StructuredExecutionError } from "../execution.js";
@@ -118,6 +120,10 @@ export interface ErrorDebugContext {
 export function createErrorResponse(
 	error: RuntimeValue,
 	context?: string,
+	// Kept for signature parity with withErrorHandling's inert observer seam
+	// (see CLAUDE.md "No Telemetry": observer seams stay wired but unused —
+	// no default observer, and createErrorResponse never writes to stderr).
+	_logger?: McpClientLogger,
 ): McpToolResponse {
 	const policy = resolveErrorPolicy(
 		error,
@@ -174,6 +180,7 @@ export function withErrorHandling<TParams extends object>(
 		context: string,
 		argumentKeyCount: number,
 	) => void,
+	logger?: McpClientLogger,
 ): (
 	args: JSONObject,
 	context?: ToolExecutionContext,
@@ -186,12 +193,12 @@ export function withErrorHandling<TParams extends object>(
 			try {
 				onError?.(error, context, Object.keys(normalizedArgs).length);
 			} catch {
-				console.error("MCP error observer failure", {
-					category: "ObserverError",
+				logCoreError("MCP error observer failure", {
+					category: "Error",
 				});
 			}
 
-			return createErrorResponse(error, context);
+			return createErrorResponse(error, context, logger);
 		}
 	};
 }

@@ -1,12 +1,11 @@
 import { runServer } from "./runtime.js";
-import { MissingHevyApiKeyError } from "./utils/config.js";
-import { createSafeErrorDiagnostic } from "@hevy-mcp/core";
+import {
+	getSafeStartupMessage,
+	handleFatalStartupError,
+} from "./utils/startup-errors.js";
 
-void runServer().catch((error) => {
-	if (error instanceof MissingHevyApiKeyError) {
-		console.error(error.message);
-	} else {
-		console.error("Fatal error in main()", createSafeErrorDiagnostic(error));
-	}
-	process.exit(1);
+export { getSafeStartupMessage, handleFatalStartupError };
+
+void runServer().catch(async (error: Error | string) => {
+	await handleFatalStartupError(error);
 });

@@ -4,6 +4,11 @@ import {
 	HEVY_REQUEST_ABORTED_ERROR_CODE,
 	HEVY_RETRY_EXHAUSTED_ERROR_CODE,
 	isHevyHttpError,
+	ApiError,
+	NetworkError,
+	NotFoundError,
+	RateLimitError,
+	ValidationError,
 } from "@hevy-mcp/hevy-client";
 import {
 	isBoolean,
@@ -95,7 +100,61 @@ export const SAFE_ERROR_CATEGORIES: ReadonlySet<SafeErrorCategory> =
 type RetryAwareError = {
 	hevyRetryCount?: number;
 	hevyRetryExhausted?: boolean;
+	retryCount?: number;
+	retryExhausted?: boolean;
 };
+
+type TaggedHttpError =
+	| ApiError
+	| NotFoundError
+	| RateLimitError
+	| ValidationError;
+type TaggedClientError = TaggedHttpError | NetworkError;
+type ErrorTag =
+	| "ApiError"
+	| "NetworkError"
+	| "NotFoundError"
+	| "RateLimitError"
+	| "ValidationError"
+	| "ToolInputValidationError"
+	| "ClientNotInitializedError"
+	| "OperationUnavailableError"
+	| "WorkoutPrivacyError"
+	| "WorkoutPayloadError"
+	| "PaginationMismatchError"
+	| "EmptyMeasurementUpdateError"
+	| "TemplatesSearchValidationError"
+	| "TrainingSummaryValidationError"
+	| "TrainingSummaryDataError";
+type TaggedValue = {
+	readonly _tag?: ErrorTag;
+	readonly path?: unknown;
+};
+
+function taggedValue(error: RuntimeValue): TaggedValue | undefined {
+	return isObject(error) ? (error as TaggedValue) : undefined;
+}
+
+function isTaggedClientError(error: RuntimeValue): error is TaggedClientError {
+	const tag = taggedValue(error)?._tag;
+	return (
+		tag === "ApiError" ||
+		tag === "NetworkError" ||
+		tag === "NotFoundError" ||
+		tag === "RateLimitError" ||
+		tag === "ValidationError"
+	);
+}
+
+function isTaggedHttpError(error: RuntimeValue): error is TaggedHttpError {
+	const tag = taggedValue(error)?._tag;
+	return (
+		tag === "ApiError" ||
+		tag === "NotFoundError" ||
+		tag === "RateLimitError" ||
+		tag === "ValidationError"
+	);
+}
 
 const ABORT_TIMEOUT_METADATA = {
 	AbortError: {
@@ -212,12 +271,16 @@ function getHeaderValue(
 /** Extract a valid HTTP status without retaining untrusted error metadata. */
 export function extractErrorStatus(error: RuntimeValue): number | undefined {
 	try {
-		if (!isHevyHttpError(error)) return undefined;
-		return error.status !== undefined &&
-			Number.isInteger(error.status) &&
-			error.status >= 100 &&
-			error.status <= 599
+		const status = isHevyHttpError(error)
 			? error.status
+			: isTaggedHttpError(error)
+				? error.status
+				: undefined;
+		return status !== undefined &&
+			Number.isInteger(status) &&
+			status >= 100 &&
+			status <= 599
+			? status
 			: undefined;
 	} catch {
 		return undefined;
@@ -230,7 +293,8 @@ export function isRetryExhausted(error: RuntimeValue): boolean {
 		return (
 			!!error &&
 			isObject(error) &&
-			(error as RetryAwareError).hevyRetryExhausted === true
+			((error as RetryAwareError).hevyRetryExhausted === true ||
+				(error as RetryAwareError).retryExhausted === true)
 		);
 	} catch {
 		return false;
@@ -243,6 +307,7 @@ export function getRetryAfterSeconds(
 	now = Date.now(),
 ): number | undefined {
 	try {
+		if (error instanceof RateLimitError) return error.retryAfterSeconds;
 		if (!isHevyHttpError(error)) return undefined;
 		const retryAfterHeader = getHeaderValue(error.headers, "retry-after");
 		if (!retryAfterHeader) return undefined;
@@ -278,6 +343,13 @@ export function getStatusErrorMessage(
 		return "The Hevy API key is invalid or has expired. Check HEVY_API_KEY.";
 	}
 	if (status === 404) return "The requested resource was not found in Hevy.";
+	if (
+		status === 409 &&
+		method?.toUpperCase() === "POST" &&
+		endpoint === "/v1/body_measurements"
+	) {
+		return "A body measurement already exists for this date. Use the update-body-measurement tool to modify it.";
+	}
 	if (status === 409) {
 		return "A conflict occurred because the resource already exists or conflicts with the current server state. Check whether it already exists and use the update tool when appropriate.";
 	}
@@ -306,7 +378,8 @@ function getRetryExhaustedMessage(error: RuntimeValue): string {
 	let retryCount: unknown;
 	try {
 		retryCount = isObject(error)
-			? (error as RetryAwareError).hevyRetryCount
+			? ((error as RetryAwareError).hevyRetryCount ??
+				(error as RetryAwareError).retryCount)
 			: undefined;
 	} catch {
 		retryCount = undefined;
@@ -321,62 +394,47 @@ function getRetryExhaustedMessage(error: RuntimeValue): string {
 const MAX_SAFE_USER_ERROR_LENGTH = 512;
 
 /** Classify an error using bounded status, names, and supplied text. */
-export function determineErrorType(
-	error: RuntimeValue,
-	message: string,
-): ErrorType {
-	if (isRetryExhausted(error)) return ErrorType.NETWORK_ERROR;
-	if (extractErrorStatus(error) === 429) return ErrorType.RATE_LIMIT;
-
-	let originalMessage = "";
-	let nameLower = "";
-	try {
-		if (error instanceof Error) {
-			originalMessage = error.message.slice(0, 512);
-			nameLower = error.name.toLowerCase();
-		}
-	} catch {
-		originalMessage = "";
-		nameLower = "";
-	}
-	const classificationText = `${message}\n${originalMessage}`.toLowerCase();
-
+export function determineErrorType(error: RuntimeValue): ErrorType {
+	const tag = taggedValue(error)?._tag;
+	if (tag === "RateLimitError") return ErrorType.RATE_LIMIT;
+	if (tag === "ValidationError") return ErrorType.VALIDATION_ERROR;
+	if (tag === "NotFoundError") return ErrorType.NOT_FOUND;
+	if (tag === "ApiError") return ErrorType.API_ERROR;
+	if (tag === "NetworkError") return ErrorType.NETWORK_ERROR;
+	if (tag === "ToolInputValidationError") return ErrorType.VALIDATION_ERROR;
 	if (
-		nameLower.includes("network") ||
-		classificationText.includes("network") ||
-		classificationText.includes("fetch") ||
-		classificationText.includes("timeout")
-	) {
-		return ErrorType.NETWORK_ERROR;
-	}
-	if (
-		nameLower.includes("validation") ||
-		classificationText.includes("validation") ||
-		classificationText.includes("invalid") ||
-		classificationText.includes("required")
+		tag === "WorkoutPrivacyError" ||
+		tag === "WorkoutPayloadError" ||
+		tag === "EmptyMeasurementUpdateError" ||
+		tag === "TemplatesSearchValidationError" ||
+		tag === "TrainingSummaryValidationError"
 	) {
 		return ErrorType.VALIDATION_ERROR;
 	}
-	if (
-		classificationText.includes("not found") ||
-		classificationText.includes("404") ||
-		classificationText.includes("does not exist")
-	) {
-		return ErrorType.NOT_FOUND;
-	}
-	if (
-		nameLower.includes("api") ||
-		classificationText.includes("api") ||
-		classificationText.includes("server error") ||
-		classificationText.includes("500")
-	) {
+	if (tag === "PaginationMismatchError" || tag === "TrainingSummaryDataError") {
 		return ErrorType.API_ERROR;
 	}
+	// Bounded-execution and transport timeouts share the client-timeout
+	// taxonomy: the request never got an answer, like other network failures.
+	// Name-based (not _tag) so DOMException timeouts classify identically.
+	if (getAbortTimeoutErrorMetadata(error)?.name === "TimeoutError") {
+		return ErrorType.NETWORK_ERROR;
+	}
+	if (isRetryExhausted(error)) return ErrorType.NETWORK_ERROR;
+	const status = extractErrorStatus(error);
+	if (status === 429) return ErrorType.RATE_LIMIT;
+	if (status === 404) return ErrorType.NOT_FOUND;
+	if (status === 400 || status === 422) return ErrorType.VALIDATION_ERROR;
+	if (status !== undefined && status >= 500 && status <= 599)
+		return ErrorType.API_ERROR;
+	// Legacy callers may still provide an explicit validation failure before
+	// the Effect boundary. Typed core errors take precedence above.
 	return ErrorType.UNKNOWN_ERROR;
 }
 
 function classifyError(error: RuntimeValue): SafeErrorCategory {
 	if (isHevyHttpError(error)) return "HevyHttpError";
+	if (isTaggedClientError(error)) return "HevyHttpError";
 	if (error instanceof TypeError) return "TypeError";
 	if (error instanceof RangeError) return "RangeError";
 	if (error instanceof ReferenceError) return "ReferenceError";
@@ -402,13 +460,17 @@ function getSafeCode(error: RuntimeValue): string | undefined {
 }
 
 function getSafeMethod(error: RuntimeValue): string | undefined {
-	if (!isHevyHttpError(error)) return undefined;
+	if (!isHevyHttpError(error) && !isTaggedHttpError(error)) return undefined;
+	if (!isObject(error) || !("method" in error) || !isString(error.method))
+		return undefined;
 	const method = error.method.toUpperCase();
 	return SAFE_HTTP_METHODS.has(method) ? method : undefined;
 }
 
 function getSafeEndpoint(error: RuntimeValue): string | undefined {
-	if (!isHevyHttpError(error)) return undefined;
+	if (!isHevyHttpError(error) && !isTaggedHttpError(error)) return undefined;
+	if (!isObject(error) || !("endpoint" in error) || !isString(error.endpoint))
+		return undefined;
 	return diagnosticEndpointIdentity(error.endpoint);
 }
 
@@ -418,7 +480,7 @@ function getExecutionFields(
 	SafeErrorDiagnostic,
 	"phase" | "operation_safety" | "commit_state" | "safe_to_retry" | "outcome"
 > {
-	if (!isHevyHttpError(error)) {
+	if (!isHevyHttpError(error) && !isTaggedClientError(error)) {
 		const abortTimeout = getAbortTimeoutErrorMetadata(error);
 		if (abortTimeout) {
 			return {
@@ -429,6 +491,16 @@ function getExecutionFields(
 		}
 		return {};
 	}
+	if (isTaggedClientError(error)) {
+		return {
+			phase: error.phase,
+			operation_safety: error.operationSafety,
+			commit_state: error.commitState,
+			safe_to_retry: error.safeToRetry,
+			outcome: error.outcome,
+		};
+	}
+	if (!isHevyHttpError(error)) return {};
 	const fields: Partial<
 		Pick<
 			SafeErrorDiagnostic,
@@ -540,6 +612,33 @@ export function resolveErrorPolicy(
 		(diagnostic.status !== undefined
 			? `Hevy API request failed (HTTP ${diagnostic.status}).`
 			: defaultMessage);
+	const tag = taggedValue(error)?._tag;
+	if (tag === "ToolInputValidationError") {
+		const path = taggedValue(error)?.path;
+		message = `Invalid tool arguments. Check ${isString(path) ? path : "arguments"}.`;
+	}
+	if (
+		tag === "ClientNotInitializedError" ||
+		tag === "OperationUnavailableError"
+	) {
+		message =
+			tag === "ClientNotInitializedError"
+				? "API client not initialized. Please provide HEVY_API_KEY."
+				: "The requested Hevy operation is unavailable.";
+	}
+	if (
+		tag === "WorkoutPrivacyError" ||
+		tag === "WorkoutPayloadError" ||
+		tag === "PaginationMismatchError" ||
+		tag === "EmptyMeasurementUpdateError" ||
+		tag === "TemplatesSearchValidationError" ||
+		tag === "TrainingSummaryValidationError" ||
+		tag === "TrainingSummaryDataError"
+	) {
+		if (error instanceof Error && error.message) {
+			message = error.message;
+		}
+	}
 	let isNotInitialized = false;
 	try {
 		isNotInitialized =
@@ -551,6 +650,21 @@ export function resolveErrorPolicy(
 	}
 	if (isNotInitialized) {
 		message = notInitializedMessage ?? defaultMessage;
+	} else if (diagnostic.status === 400) {
+		const responseError = isHevyHttpError(error)
+			? error.responseError
+			: error instanceof ValidationError
+				? error.responseError
+				: undefined;
+		if (responseError) message = `${message} Detail: ${responseError}`;
+	} else if (diagnostic.code === HEVY_REQUEST_ABORTED_ERROR_CODE) {
+		// This code is emitted only for caller cancellation. Keep its explicit
+		// client-facing message instead of falling back to the generic error text.
+		message = "The request was canceled by the client.";
+	} else if (diagnostic.code === HEVY_DEADLINE_EXCEEDED_ERROR_CODE) {
+		// Same treatment for bounded-execution timeouts: the diagnostic code is
+		// emitted only for deadline expiry, so name the outcome explicitly.
+		message = "The request exceeded its time limit before completing.";
 	} else if (isRetryExhausted(error)) {
 		message = getRetryExhaustedMessage(error);
 	} else if (diagnostic.status === 429) {
@@ -563,5 +677,5 @@ export function resolveErrorPolicy(
 	) {
 		message = error.message.slice(0, MAX_SAFE_USER_ERROR_LENGTH);
 	}
-	return { type: determineErrorType(error, message), message, diagnostic };
+	return { type: determineErrorType(error), message, diagnostic };
 }

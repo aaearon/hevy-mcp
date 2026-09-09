@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-measurement="$(npm run measure:tokens)"
+measurement="$(pnpm run measure:tokens)"
 printf '%s\n' "$measurement"
 
 total_tokens="$(printf '%s\n' "$measurement" | awk -F'Total: ' '/Tools:/ { split($2, fields, " "); print fields[1]; exit }')"

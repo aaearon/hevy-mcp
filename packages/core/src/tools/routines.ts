@@ -1,10 +1,10 @@
+import { Effect } from "effect";
 import type { Routine } from "@hevy-mcp/hevy-client/types";
 import { createRoutineOutputSchema } from "../utils/output-schemas.js";
 import {
 	createRoutineResponse,
 	routineResponse,
 	routinesResponse,
-	unwrapRoutineMutationResponse,
 	updateRoutineResponse,
 } from "../utils/response-contracts.js";
 import {
@@ -19,10 +19,11 @@ import {
 	createRoutineInputFields,
 	updateRoutineInputFields,
 } from "./input-schemas.js";
-import { buildRoutinePayload } from "./mutation-semantics.js";
 import type { ToolDefinition } from "./define-tool.js";
 import type { ToolRuntime } from "./tool-runtime.js";
 import type { PaginatedToolResult } from "../utils/response-contracts.js";
+import { HevyOperationsService } from "../effect-services.js";
+import { operationEffect, requireOperation } from "./operation-helpers.js";
 
 const getRoutinesSchema = paginationFields({
 	defaultPageSize: 5,
@@ -45,9 +46,14 @@ const getRoutinesDefinition: ToolDefinition<
 	annotations: readOnlyAnnotations("Get Routines"),
 	responseContract: routinesResponse,
 	execute: (runtime: ToolRuntime, { page, page_size }) =>
-		runtime
-			.getOperations()
-			.routines.list.execute({ page, pageSize: page_size }, runtime.execution),
+		operationEffect(
+			requireOperation(
+				runtime.service(HevyOperationsService).routines.list,
+				"routines.list",
+			),
+			{ page, pageSize: page_size },
+			runtime.execution,
+		),
 };
 
 const getRoutineSchema = { routine_id: nonEmptyId } as const;
@@ -71,18 +77,21 @@ const getRoutineDefinition: ToolDefinition<
 	outputSchema: routineResponse.outputSchema,
 	annotations: readOnlyAnnotations("Get Routine"),
 	responseContract: routineResponse,
-	execute: async (runtime, { routine_id }) => {
-		const data = await runtime
-			.getOperations()
-			.routines.get.execute({ routineId: routine_id }, runtime.execution);
-		return { ...data, routine_id };
-	},
+	execute: (runtime, { routine_id }) =>
+		operationEffect(
+			requireOperation(
+				runtime.service(HevyOperationsService).routines.get,
+				"routines.get",
+			),
+			{ routineId: routine_id },
+			runtime.execution,
+		).pipe(Effect.map((data) => ({ ...data, routine_id }))),
 };
 
 const createRoutineSchema = createRoutineInputFields;
 
 type CreateRoutineResult = {
-	routine: Routine | null;
+	routine: Routine | undefined;
 	usesRepRanges: boolean;
 };
 const createRoutineDefinition: ToolDefinition<
@@ -99,20 +108,25 @@ const createRoutineDefinition: ToolDefinition<
 	outputSchema: createRoutineOutputSchema,
 	annotations: createAnnotations("Create Routine"),
 	responseContract: createRoutineResponse,
-	execute: async (runtime, args) => {
-		const { payload, usesRepRanges } = buildRoutinePayload(
-			args.routine,
-			"create",
-		);
-		const data = await runtime.getClient().createRoutine({ routine: payload });
-		return { routine: unwrapRoutineMutationResponse(data), usesRepRanges };
-	},
+	// The routines.create operation owns the unwrap: POST /v1/routines answers
+	// with `{ routine: [Routine] }`, and normalizeRoutineResponse() in
+	// @hevy-mcp/operations reduces that (and the singular wrapper) to a bare
+	// Routine before it reaches this contract.
+	execute: (runtime, args) =>
+		operationEffect(
+			requireOperation(
+				runtime.service(HevyOperationsService).routines.create,
+				"routines.create",
+			),
+			{ routine: args.routine },
+			runtime.execution,
+		),
 };
 
 const updateRoutineSchema = updateRoutineInputFields;
 
 type UpdateRoutineResult = {
-	routine: Routine | null;
+	routine: Routine | undefined;
 	routine_id: string;
 	usesRepRanges: boolean;
 };
@@ -129,21 +143,17 @@ const updateRoutineDefinition: ToolDefinition<
 	kind: "write",
 	annotations: updateAnnotations("Update Routine"),
 	responseContract: updateRoutineResponse,
-	execute: async (runtime, args) => {
-		const { routine_id } = args;
-		const { payload, usesRepRanges } = buildRoutinePayload(
-			args.routine,
-			"update",
-		);
-		const data = await runtime
-			.getClient()
-			.updateRoutine(routine_id, { routine: payload });
-		return {
-			routine: unwrapRoutineMutationResponse(data),
-			routine_id,
-			usesRepRanges,
-		};
-	},
+	// See create-routine above: PUT /v1/routines/{id} answers with the same
+	// `{ routine: [Routine] }` wrapper, and routines.update unwraps it.
+	execute: (runtime, { routine_id, routine }) =>
+		operationEffect(
+			requireOperation(
+				runtime.service(HevyOperationsService).routines.update,
+				"routines.update",
+			),
+			{ routineId: routine_id, routine },
+			runtime.execution,
+		).pipe(Effect.map((data) => ({ ...data, routine_id }))),
 };
 
 export const routineToolDefinitions = [

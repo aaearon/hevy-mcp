@@ -19,14 +19,14 @@ This is achieved by keeping the tool implementations and API client runtime-neut
 
 The six workspaces and their roles at a glance:
 
-| Workspace              | Package name            | Role                                                        |
-| ---------------------- | ----------------------- | ----------------------------------------------------------- |
-| `packages/hevy-client` | `@hevy-mcp/hevy-client` | Runtime-neutral API client (Kubb-generated)                 |
-| `packages/operations`  | `@hevy-mcp/operations`  | Runtime-neutral shared operations layer                     |
-| `packages/core`        | `@hevy-mcp/core`        | Runtime-neutral MCP tools and server construction           |
-| `packages/node`        | `hevy-mcp`              | Node.js stdio/HTTP adapter — the only publishable workspace |
-| `packages/worker`      | `@hevy-mcp/worker`      | Private Cloudflare Worker HTTP/OAuth adapter                |
-| `packages/cli`         | `@chrisdoc/hevy-cli`    | Public Hevy command-line client                             |
+| Workspace              | Package name            | Role                                              |
+| ---------------------- | ----------------------- | ------------------------------------------------- |
+| `packages/hevy-client` | `@hevy-mcp/hevy-client` | Runtime-neutral API client (Kubb-generated)       |
+| `packages/operations`  | `@hevy-mcp/operations`  | Runtime-neutral shared operations layer           |
+| `packages/core`        | `@hevy-mcp/core`        | Runtime-neutral MCP tools and server construction |
+| `packages/node`        | `hevy-mcp`              | Public Node.js stdio/HTTP adapter                 |
+| `packages/worker`      | `@hevy-mcp/worker`      | Private Cloudflare Worker HTTP/OAuth adapter      |
+| `packages/cli`         | `@chrisdoc/hevy-cli`    | Public Hevy command-line client                   |
 
 [[5]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6)
 
@@ -98,13 +98,13 @@ Platform-specific concerns are isolated to the adapter packages:
 The `package-boundaries` lane (blocking, runs on Node 24 and 26) uses dependency-cruiser to statically validate that the boundary rules hold across the entire workspace graph [[8]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/repository/validation-lanes.json#L209-L227). A pull request that introduces a Node built-in into `packages/core` or a Cloudflare binding into `packages/hevy-client` will fail CI before merge.
 
 > [!NOTE]
-> `packages/node/src/utils/stdio-observability.ts` is a deliberate exception: it resides in the Node adapter and instruments private MCP SDK internals. The runtime-neutral packages themselves remain clean; see [Key Design Decisions](#key-design-decisions) for details on the stdio observability tradeoff.
+> `packages/node/src/utils/stdio-parsing.ts` is a deliberate exception: it resides in the Node adapter and patches private MCP SDK stdio internals. The runtime-neutral packages themselves remain clean; see [Key Design Decisions](#key-design-decisions) for details on the stdio parse-hardening tradeoff.
 
 ## Why This Structure Exists
 
 ### One tool contract, two runtimes
 
-The primary motivation is to expose the same 26 MCP tools to users regardless of whether they run the server locally via npm or connect to the hosted Cloudflare endpoint. Splitting implementation into runtime-neutral packages and thin adapters is the only way to achieve this without duplicating logic [[13]](https://app.dosu.dev/documents/86385d8b-fd28-42af-bebd-e017cd533d92).
+The primary motivation is to expose the same 22 MCP tools to users regardless of whether they run the server locally via npm or connect to the hosted Cloudflare endpoint. Splitting implementation into runtime-neutral packages and thin adapters is the only way to achieve this without duplicating logic [[13]](https://app.dosu.dev/documents/86385d8b-fd28-42af-bebd-e017cd533d92).
 
 ### Preventing invalid bundles
 
@@ -112,7 +112,7 @@ Bundling Node.js code (anything that imports `process`, `fs`, `os`, etc.) into a
 
 ### Clean published surface
 
-Only one workspace is publishable to npm: `hevy-mcp` (the Node adapter). Everything else is either a private internal package or a separate public package:
+Two workspaces are publishable to npm: `hevy-mcp` (the Node adapter) and `@chrisdoc/hevy-cli` (the standalone CLI). The remaining workspaces are private packages or are deployed directly:
 
 | Package                 | Published? | Why                                     |
 | ----------------------- | ---------- | --------------------------------------- |
@@ -134,7 +134,7 @@ The private workspaces (`core`, `hevy-client`, `operations`, `worker`) are still
 
 ## Changeset Cascade
 
-Because the private packages are bundled into the published adapters, a change in a shared package must version-bump every downstream consumer. This "cascade" is enforced by the `package-changesets` CI lane (`npm run check:changeset`), which uses the `release-cascade` comparison from `repository/validation-lanes.json` as its machine-readable source of truth [[16]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/repository/validation-lanes.json#L259-L273).
+Because the private packages are bundled into the published adapters, a change in a shared package must version-bump every downstream consumer. This "cascade" is enforced by the `package-changesets` CI lane (`pnpm run check:changeset`), which uses the `release-cascade` comparison from `repository/validation-lanes.json` as its machine-readable source of truth [[16]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/repository/validation-lanes.json#L259-L273).
 
 ### Cascade rules
 
@@ -187,26 +187,59 @@ The full matrix [[17]](https://app.dosu.dev/documents/52dd122f-29f8-46dd-9513-34
 
 ### How it is enforced
 
-CI runs `npm run check:changeset` (`npx changeset status --since=origin/<base_branch>`) as a blocking gate on every pull request [[19]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6). The `package-changesets` lane checks that every changed workspace directory has a changeset file that names that package, then applies the transitive composition matrix. The `release-cascade` comparison label in `repository/validation-lanes.json` is the machine-readable definition driving this check [[20]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/repository/validation-lanes.json#L259-L287).
+CI runs `pnpm run check:changeset` (`pnpm exec changeset status --since=origin/<base_branch>`) as a blocking gate on every pull request [[19]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6). The `package-changesets` lane checks that every changed workspace directory has a changeset file that names that package, then applies the transitive composition matrix. The `release-cascade` comparison label in `repository/validation-lanes.json` is the machine-readable definition driving this check [[20]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/repository/validation-lanes.json#L259-L287).
 
 > [!IMPORTANT]
 > The Conventional Commit type (`chore:`, `docs:`, etc.) does **not** determine changeset eligibility. What matters is whether the change touches a file under `packages/*`, modifies runtime-visible behaviour, changes a workspace dependency, or updates an explicit release trigger like `cloudflare.config.ts` [[21]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6).
 
 ## Key Design Decisions
 
+## Effect control structure and scopes
+
+Effect is the runtime control structure for the shared request path, not just a
+wrapper around Promise code. The Hevy client uses Effect schedules for retry
+decisions and delays, Effect timeout operators for attempt and operation
+budgets, and fiber interruption for cancellation. Abort signals are bridged at
+the native `fetch` edge so callers still get normal web-platform cancellation.
+
+The scopes form one ownership hierarchy:
+
+```text
+process Scope (Node lifecycle, telemetry, signals, transport)
+  └─ server Scope (core MCP runtime, shared services, template cache)
+       └─ request Scope (tool/resource invocation, deadline, MCP signal)
+            └─ Hevy request Effect (retry, timeout, interruption)
+```
+
+The process Scope finalizes telemetry and transport resources. The server Scope
+finalizes the shared MCP runtime and cache. A request Scope is created for each
+tool or resource invocation and wires `mcpReq.signal` to fiber interruption.
+Promise façades remain the supported integration surface:
+`HevyClient`, `createHevyMcpServer`, `createNodeMcpServer`,
+`runStdioServer` / `runServer`, operation `.execute()`, and CLI
+`execute` / `runCli`.
+
+This adoption is intentionally bounded. The Worker OAuth, bindings, and
+request-handling adapter remain Promise-based; only its validation-cache retry
+uses the Effect control structure. MCP input and output contracts remain Zod
+schemas, and `config.ts` / `arguments.ts` remain throwing parsers rather than
+Effect Config. Kubb generates internal client artifacts, but generated API
+functions and `.kubb` paths are private; consumers use curated package
+exports.
+
 ### Generated API client via Kubb
 
 The Hevy API client, TypeScript types, and Zod schemas under `packages/hevy-client/src/generated/` are produced by [Kubb](https://kubb.dev/) from the Hevy OpenAPI specification [[22]](https://app.dosu.dev/documents/52dd122f-29f8-46dd-9513-3476b4dbb3ae). The generation pipeline is:
 
 ```bash
-npm run openapi       # fetch upstream Hevy spec → openapi-spec.json
-npm run build:client  # run Kubb → packages/hevy-client/src/generated/
+pnpm run openapi       # fetch upstream Hevy spec → openapi-spec.json
+pnpm run build:client  # run Kubb → packages/hevy-client/src/generated/
 ```
 
 > [!WARNING]
 > **Never edit files in `packages/hevy-client/src/generated/` by hand.** All generated TypeScript errors in that directory are expected and should be ignored. Fixes belong in `scripts/openapi-spec.js` (applied before spec write) so they survive future regenerations [[23]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6).
 
-Only the curated package barrels (`@hevy-mcp/hevy-client/types` and `@hevy-mcp/hevy-client/schemas`) are the public API of the client package. Generated API functions and `.kubb` internals are private [[24]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6).
+Only the curated package barrels (`@hevy-mcp/hevy-client/types` and `@hevy-mcp/hevy-client/schemas`) are the public API of the client package. Kubb itself, generated API functions, and `.kubb` internals are not public API [[24]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6).
 
 ### Zod schema inference for type-safe tool parameters
 
@@ -249,20 +282,17 @@ server.registerTool(
 
 [[27]](https://app.dosu.dev/documents/947ebc0f-60be-4a4e-b227-238f01cd75a6)
 
-### MCP SDK internals dependency for stdio observability
+### MCP SDK internals dependency for stdio parse hardening
 
-`packages/node/src/utils/stdio-observability.ts` instruments **private MCP SDK stdio fields** to provide raw chunk observability that is not exposed through the SDK's public API [[28]](https://app.dosu.dev/documents/52dd122f-29f8-46dd-9513-3476b4dbb3ae):
+`packages/node/src/utils/stdio-parsing.ts` patches **private MCP SDK stdio fields** to skip a malformed stdin line instead of tearing down the connection, which the SDK's public API does not expose a way to do:
 
-- `_ondata` — wrapped to capture incoming chunk byte length and BOM detection before forwarding.
-- `_readBuffer` — accessed to replace `readMessage` with an instrumented parser hook.
+- `_readBuffer` — accessed to replace `readMessage` with a parse-hardening hook.
 - `_buffer` — read and rewritten during newline-delimited message extraction.
 
-[[29]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/packages/node/src/utils/stdio-observability.ts#L41-L67)
-
-The adapter is **fail-closed**: if the private fields are absent (e.g., after an SDK refactor), instrumentation is silently skipped and the original transport is returned unchanged [[30]](https://github.com/chrisdoc/hevy-mcp/blob/c4ac07dbe84a7e83ba88a5073f0a83ab34af5c86/packages/node/src/utils/stdio-observability.ts#L86-L90).
+The adapter is **fail-closed**: if the private fields are absent (e.g., after an SDK refactor), the hook installation returns `false` and the original transport behavior is preserved unchanged.
 
 > [!WARNING]
-> This is a deliberate architectural tradeoff: private SDK field access provides critical stdio observability that cannot be obtained otherwise, but it means SDK upgrades need careful testing. **Always re-run the complete stdio observability test suite (`npm run test:stdio`) after every MCP TypeScript SDK package upgrade** and inspect the SDK compatibility assumptions before merging [[31]](https://app.dosu.dev/documents/52dd122f-29f8-46dd-9513-3476b4dbb3ae).
+> This is a deliberate architectural tradeoff: private SDK field access provides parse hardening that cannot be obtained otherwise, but it means SDK upgrades need careful testing. **Always re-run the complete stdio parse hardening test suite (`pnpm run test:stdio`) after every MCP TypeScript SDK package upgrade** and inspect the SDK compatibility assumptions before merging.
 
 ## Related Documentation
 

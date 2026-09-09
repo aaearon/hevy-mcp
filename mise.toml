@@ -1,8 +1,19 @@
+[settings]
+lockfile = true
+
 [tools]
 node = "24"
-npm = "12.0.2"
-hk = "1.51.0"
-kiota = "latest"
+pnpm = "12.0.0"
+lefthook = "latest"
 pinact = "latest"
-actionlint = "1.7.12"
-zizmor = "1.29.0"
+actionlint = "latest"
+zizmor = "latest"
+# `entire` (upstream's proprietary session-recording tool) is deliberately
+# excluded. It is a closed-source binary not available to inspect here, and
+# its own docs (.entire/settings.json, .agents/skills/using-entire/) describe
+# pushing session transcripts/prompts as git-ref "checkpoints" on `pre-push`
+# (.lefthook/pre-push/entire.sh) -- data leaving the machine, whose
+# destination host cannot be verified from source. This fork's policy forbids
+# new outbound hosts and requires proof of inertness before adding a tool like
+# this; absent that proof, default to excluding it. lefthook.yml strips the
+# corresponding hook steps.

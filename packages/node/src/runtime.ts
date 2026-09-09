@@ -18,9 +18,10 @@ import {
 } from "./utils/mcp-session-observability.js";
 import { serviceName, serviceVersion } from "./utils/service-info.js";
 import {
-	INVALID_API_KEY_MESSAGE,
 	runNodeLifecycle,
+	type NodeLifecycleHandle,
 } from "./utils/node-lifecycle.js";
+import { InvalidHevyApiKeyError } from "./utils/startup-errors.js";
 
 const objectSchema = z.object({}).passthrough();
 const stringSchema = z.string();
@@ -176,7 +177,7 @@ async function validateApiKey(apiKey: string, signal?: AbortSignal) {
 		if (signal?.aborted) throw error;
 		const status = getHttpStatus(error);
 		if (status === 401 || status === 403) {
-			throw new Error(INVALID_API_KEY_MESSAGE);
+			throw new InvalidHevyApiKeyError();
 		}
 
 		const diagnostic = getSafeValidationDiagnostic(error);
@@ -199,12 +200,12 @@ async function validateApiKey(apiKey: string, signal?: AbortSignal) {
  * preserves JSDoc into the published bundle, and `tests/package/npm-pack-smoke.mjs`
  * scans packed artifacts for those specifiers as raw text.
  */
-function buildServer(
+async function buildServer(
 	apiKey: string,
 	_transport: NodeTransport = "stdio",
 	lifecycleSignal?: AbortSignal,
 ) {
-	const server = createHevyMcpServer({
+	const server = await createHevyMcpServer({
 		createClient: ({ onLog }) =>
 			createHevyClient({
 				apiKey,
@@ -227,7 +228,9 @@ export async function createNodeMcpServer(
 	return buildServer(validatedApiKey, transport, lifecycleSignal);
 }
 
-export async function runStdioServer() {
+export async function runStdioServer(): Promise<
+	NodeLifecycleHandle | undefined
+> {
 	const args = process.argv.slice(2);
 	const cliAction = getCliAction(args);
 
@@ -240,7 +243,7 @@ export async function runStdioServer() {
 		return;
 	}
 
-	await runNodeLifecycle({
+	return runNodeLifecycle({
 		transport: "stdio",
 		start: async (context) => {
 			const { signal } = context;
@@ -248,13 +251,19 @@ export async function runStdioServer() {
 			const apiKey = cfg.apiKey;
 			assertApiKey(apiKey);
 			const server = await createNodeMcpServer({ apiKey }, "stdio", signal);
+			const ownedServer = context.adoptTarget(server);
 			console.error("Starting MCP server in stdio mode");
 			const transport = createHardenedStdioTransport(
 				new StdioServerTransport(),
 			);
 			context.markConnectAttempted();
-			await server.connect(transport);
-			context.markConnectSucceeded();
+			try {
+				await server.connect(transport);
+				context.markConnectSucceeded();
+			} catch (error) {
+				await ownedServer.close().catch(() => undefined);
+				throw error;
+			}
 			return {
 				target: server,
 				onShutdown: (succeeded) =>
@@ -271,7 +280,7 @@ export async function runStdioServer() {
 	});
 }
 
-export async function runServer(): Promise<void> {
+export async function runServer(): Promise<NodeLifecycleHandle | undefined> {
 	const args = process.argv.slice(2);
 	const cliAction = getCliAction(args);
 	if (cliAction === "version") {
@@ -285,11 +294,10 @@ export async function runServer(): Promise<void> {
 
 	const options = parseNodeCliOptions(args);
 	if (options.transport === "stdio") {
-		await runStdioServer();
-		return;
+		return runStdioServer();
 	}
 
-	await runNodeLifecycle({
+	return runNodeLifecycle({
 		transport: "http",
 		start: async (context) => {
 			const { signal } = context;
@@ -309,12 +317,10 @@ export async function runServer(): Promise<void> {
 				options,
 				cfg.apiKey,
 				(params) =>
-					Promise.resolve(
-						buildServer(
-							params.apiKey,
-							"http",
-							mergeAbortSignals(signal, params.lifecycleSignal),
-						),
+					buildServer(
+						params.apiKey,
+						"http",
+						mergeAbortSignals(signal, params.lifecycleSignal),
 					),
 				undefined,
 				extensions,

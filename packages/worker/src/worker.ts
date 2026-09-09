@@ -124,6 +124,9 @@ export interface WorkerEnv {
 	// exposes OAuth 2.1 endpoints for remote MCP clients such as Claude.ai.
 	// When absent, behavior is identical to the pre-OAuth Worker.
 	OAUTH_KV?: unknown;
+	// Optional comma-separated retry delay sequence (ms) for validation backoff.
+	// Defaults to 300,600.
+	HEVY_VALIDATION_RETRY_DELAYS_MS?: string;
 }
 
 interface WorkerDependencies {
@@ -138,7 +141,7 @@ interface WorkerDependencies {
 		lifecycleSignal?: AbortSignal,
 		executionDeadline?: number,
 		observer?: CreateHevyMcpServerOptions["observer"],
-	) => McpServer;
+	) => Promise<McpServer>;
 	createTransport?: () => WebStandardStreamableHTTPServerTransport;
 	createObserver?: (
 		options: WorkerToolObserverOptions,
@@ -298,13 +301,13 @@ function createDefaultRequestClient(
 	return createHevyClient({ apiKey, baseUrl, onLog });
 }
 
-function createDefaultServer(
+async function createDefaultServer(
 	createClient: CreateHevyMcpServerOptions["createClient"],
 	lifecycleSignal?: AbortSignal,
 	executionDeadline?: number,
 	observer?: CreateHevyMcpServerOptions["observer"],
-): McpServer {
-	return createHevyMcpServer({
+): Promise<McpServer> {
+	return await createHevyMcpServer({
 		createClient,
 		observer,
 		lifecycleSignal,
@@ -412,7 +415,7 @@ async function serveMcpRequest(
 		const observer = dependencies.createObserver({
 			cloudflareColo: getCloudflareColo(request),
 		});
-		const server = dependencies.createServer(
+		const server = await dependencies.createServer(
 			({ onLog }) =>
 				dependencies.createRequestClient(apiKey, hevyApiBaseUrl, onLog),
 			request.signal,

@@ -15,6 +15,10 @@
 		"./schemas": {
 			"types": "./src/schemas.ts",
 			"import": "./src/schemas.ts"
+		},
+		"./internal": {
+			"types": "./src/internal.ts",
+			"import": "./src/internal.ts"
 		}
 	},
 	"scripts": {
@@ -22,6 +26,7 @@
 		"check:types": "tsc --noEmit -p tsconfig.json"
 	},
 	"dependencies": {
-		"zod": "^4.4.3"
+		"effect": "^4.0.0-rc.112",
+		"zod": "^4.5.4"
 	}
 }

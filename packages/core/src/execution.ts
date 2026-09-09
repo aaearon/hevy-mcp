@@ -6,7 +6,14 @@ import type {
 	HevyRequestOptions,
 	HevyRequestPhase,
 } from "@hevy-mcp/hevy-client";
-import { isFunction } from "./utils/type-predicates.js";
+import { Cause, Clock, Effect, Exit, Option } from "effect";
+import {
+	isFunction,
+	isString,
+	type RuntimeValue,
+} from "./utils/type-predicates.js";
+import { logCoreError } from "./utils/core-logger.js";
+import { createSafeErrorDiagnostic } from "./utils/error-policy.js";
 
 /** Per-request control supplied by MCP, HTTP, CLI, or a lifecycle owner. */
 export interface ToolExecutionContext extends HevyRequestOptions {
@@ -63,6 +70,13 @@ export function createExecutionProjection(
 	return projection;
 }
 
+/**
+ * Compose request and lifecycle abort signals for the fetch edge.
+ *
+ * Only the native fetch call needs the composed signal: in-flight Effect
+ * waits (retry delays, cache lookups) are already interrupted by the fiber,
+ * so this helper must not be repurposed as general cancellation plumbing.
+ */
 export function mergeAbortSignals(
 	...signals: Array<AbortSignal | undefined>
 ): AbortSignal | undefined {
@@ -73,8 +87,100 @@ export function mergeAbortSignals(
 	if (active.length === 1) return active[0];
 	// Node 24 and the supported Worker runtimes provide AbortSignal.any. The
 	// native composition owns listener cleanup when the derived signal settles,
-	// avoiding one retained lifecycle/request listener per invocation.
-	return AbortSignal.any(active);
+	// avoiding one retained lifecycle/request listener per invocation. Older
+	// self-hosted Node runtimes (< 20.3) lack it; the TypeError from the missing
+	// static falls through to manual composition instead of failing dispatch.
+	try {
+		return AbortSignal.any(active);
+	} catch (error) {
+		if (!(error instanceof TypeError)) throw error;
+	}
+	const composed = new AbortController();
+	const listeners: Array<{
+		signal: AbortSignal;
+		onAbort: () => void;
+	}> = [];
+	const abort = (signal: AbortSignal) => {
+		for (const listener of listeners) {
+			listener.signal.removeEventListener("abort", listener.onAbort);
+		}
+		listeners.length = 0;
+		composed.abort(signal.reason);
+	};
+	for (const signal of active) {
+		if (signal.aborted) {
+			abort(signal);
+			break;
+		}
+		const onAbort = () => abort(signal);
+		listeners.push({ signal, onAbort });
+		signal.addEventListener("abort", onAbort, { once: true });
+	}
+	return composed.signal;
+}
+
+function defectMessage(defect: RuntimeValue): string {
+	if (defect instanceof Error) {
+		return defect.message;
+	}
+	if (isString(defect)) {
+		return defect;
+	}
+	try {
+		return JSON.stringify(defect) ?? "Unknown defect";
+	} catch {
+		return "Unknown defect";
+	}
+}
+
+/**
+ * Run one MCP operation with the request's remaining budget.
+ *
+ * The timeout is deliberately calculated inside the Effect runtime so tests
+ * can provide TestClock and callers cannot bypass an absolute deadline by
+ * omitting `forExecution` from a handler.
+ */
+export async function runBoundedExecution<A, E>(
+	effect: Effect.Effect<A, E>,
+	options: {
+		readonly signal?: AbortSignal;
+		readonly timeoutMs: number;
+		readonly deadline?: number;
+	},
+): Promise<A> {
+	const bounded = Effect.gen(function* () {
+		const now = yield* Clock.currentTimeMillis;
+		const deadline = options.deadline ?? now + options.timeoutMs;
+		const remaining = Math.max(0, deadline - now);
+		return yield* Effect.timeout(effect, remaining);
+	});
+	const exit = await Effect.runPromiseExit(bounded, {
+		signal: options.signal,
+	});
+	if (Exit.isSuccess(exit)) return exit.value;
+	const failure = Cause.findErrorOption(exit.cause);
+	if (Option.isSome(failure)) throw failure.value;
+	if (Cause.hasInterruptsOnly(exit.cause)) {
+		throw new DOMException(
+			"The request was canceled by the client.",
+			"AbortError",
+		);
+	}
+	const dieReason = exit.cause.reasons.find(Cause.isDieReason);
+	if (dieReason !== undefined) {
+		const message = defectMessage(dieReason.defect);
+		// Bounded diagnostic (category/status/frames only), never the raw defect
+		// message, matching the core logging policy for tool errors.
+		logCoreError(
+			"Unexpected execution defect",
+			createSafeErrorDiagnostic(dieReason.defect),
+		);
+		if (dieReason.defect instanceof Error) {
+			throw dieReason.defect;
+		}
+		throw new Error(message);
+	}
+	throw new Error("The request failed unexpectedly.");
 }
 
 type ClientMethod = keyof HevyClient;
@@ -123,6 +229,20 @@ export function bindClientExecution<TClient extends HevyClient>(
 		get(target, property, receiver) {
 			const value = Reflect.get(target, property, receiver);
 			if (!isFunction(value)) return value;
+			// Proxy invariant: a non-configurable, non-writable own data
+			// property must be reported verbatim. The hidden native request
+			// Effect seam is defined exactly that way; returning a bound or
+			// options-binding copy would fabricate a new function value and
+			// throw a TypeError when operations recover the seam through
+			// this proxy.
+			const descriptor = Reflect.getOwnPropertyDescriptor(target, property);
+			if (
+				descriptor !== undefined &&
+				descriptor.configurable === false &&
+				descriptor.writable === false
+			) {
+				return value;
+			}
 			const optionIndex =
 				property in HEVY_CLIENT_OPTION_INDEXES
 					? HEVY_CLIENT_OPTION_INDEXES[property as ClientMethod]

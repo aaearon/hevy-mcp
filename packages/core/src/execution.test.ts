@@ -1,9 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
+import { Cause, Effect } from "effect";
 import type { HevyClient, HevyRequestOptions } from "@hevy-mcp/hevy-client";
 import {
 	bindClientExecution,
 	createExecutionProjection,
 	HEVY_CLIENT_OPTION_INDEXES,
+	mergeAbortSignals,
+	runBoundedExecution,
 } from "./execution.js";
 
 type ClientTestArgument =
@@ -48,6 +51,45 @@ const baseArgs = {
 } satisfies ClientMethodArguments;
 
 describe("bindClientExecution", () => {
+	it("reports frozen non-configurable properties verbatim through the proxy", () => {
+		const seam = Symbol("native-request-effect");
+		const nativeRequestEffect = vi.fn();
+		const client = {
+			getWorkouts: vi.fn(),
+			getWorkout: vi.fn(),
+			createWorkout: vi.fn(),
+			updateWorkout: vi.fn(),
+			getWorkoutCount: vi.fn(),
+			getWorkoutEvents: vi.fn(),
+			getRoutines: vi.fn(),
+			getRoutineById: vi.fn(),
+			createRoutine: vi.fn(),
+			updateRoutine: vi.fn(),
+			getExerciseTemplates: vi.fn(),
+			getExerciseTemplate: vi.fn(),
+			getExerciseHistory: vi.fn(),
+			createExerciseTemplate: vi.fn(),
+			getRoutineFolders: vi.fn(),
+			createRoutineFolder: vi.fn(),
+			getRoutineFolder: vi.fn(),
+			getBodyMeasurements: vi.fn(),
+			getBodyMeasurement: vi.fn(),
+			createBodyMeasurement: vi.fn(),
+			updateBodyMeasurement: vi.fn(),
+			getUserInfo: vi.fn(),
+		} satisfies HevyClient;
+		Object.defineProperty(client, seam, {
+			configurable: false,
+			enumerable: false,
+			value: nativeRequestEffect,
+			writable: false,
+		});
+
+		const bound = bindClientExecution(client, { deadline: 123 });
+
+		expect(Reflect.get(bound, seam)).toBe(nativeRequestEffect);
+	});
+
 	it("binds unknown function properties without injecting options", () => {
 		const extra = vi.fn(function (this: HevyClient) {
 			return this;
@@ -151,5 +193,135 @@ describe("bindClientExecution", () => {
 			commit_state: "not_sent",
 			safe_to_retry: false,
 		});
+	});
+});
+
+describe("mergeAbortSignals", () => {
+	it("returns undefined without signals and passes a single signal through", () => {
+		expect(mergeAbortSignals()).toBeUndefined();
+		const signal = new AbortController().signal;
+		expect(mergeAbortSignals(undefined, signal, undefined)).toBe(signal);
+	});
+
+	it("aborts the composed fallback signal when a source signal aborts", () => {
+		const nativeDescriptor = Object.getOwnPropertyDescriptor(
+			AbortSignal,
+			"any",
+		);
+		// Simulate runtimes without AbortSignal.any (Node < 20.3).
+		Object.defineProperty(AbortSignal, "any", {
+			value: undefined,
+			configurable: true,
+		});
+		try {
+			const first = new AbortController();
+			const second = new AbortController();
+			const reason = new Error("lifecycle closed");
+			const composed = mergeAbortSignals(first.signal, second.signal);
+
+			expect(composed).toBeDefined();
+			expect(composed?.aborted).toBe(false);
+
+			first.abort(reason);
+			expect(composed?.aborted).toBe(true);
+			expect(composed?.reason).toBe(reason);
+
+			const aborted = new AbortController();
+			aborted.abort();
+			expect(mergeAbortSignals(aborted.signal, second.signal)?.aborted).toBe(
+				true,
+			);
+		} finally {
+			if (nativeDescriptor) {
+				Object.defineProperty(AbortSignal, "any", nativeDescriptor);
+			} else {
+				Reflect.deleteProperty(AbortSignal, "any");
+			}
+		}
+	});
+
+	it("composes with the native AbortSignal.any when available", () => {
+		if (!("any" in AbortSignal)) return;
+		const first = new AbortController();
+		const second = new AbortController();
+		const composed = mergeAbortSignals(first.signal, second.signal);
+		expect(composed?.aborted).toBe(false);
+		second.abort();
+		expect(composed?.aborted).toBe(true);
+	});
+});
+
+describe("runBoundedExecution", () => {
+	it("returns value on success", async () => {
+		const result = await runBoundedExecution(Effect.succeed("hello"), {
+			timeoutMs: 1000,
+		});
+		expect(result).toBe("hello");
+	});
+
+	it("re-throws typed failures directly", async () => {
+		const error = new Error("typed failure");
+		await expect(
+			runBoundedExecution(Effect.fail(error), { timeoutMs: 1000 }),
+		).rejects.toThrow("typed failure");
+	});
+
+	it("extracts and throws unexpected defects instead of a generic message", async () => {
+		const defect = new Error("internal defect details");
+		await expect(
+			runBoundedExecution(Effect.die(defect), { timeoutMs: 1000 }),
+		).rejects.toThrow("internal defect details");
+	});
+
+	it("converts non-Error defects to Error with string representation", async () => {
+		await expect(
+			runBoundedExecution(Effect.die("string defect"), { timeoutMs: 1000 }),
+		).rejects.toThrow("string defect");
+	});
+
+	it("treats Effect.die(undefined) as a present defect, not a missing one", async () => {
+		await expect(
+			runBoundedExecution(Effect.die(undefined), { timeoutMs: 1000 }),
+		).rejects.toThrow("Unknown defect");
+	});
+
+	it("falls back to Unknown defect for non-serializable defects", async () => {
+		await expect(
+			runBoundedExecution(Effect.die(Symbol("x")), { timeoutMs: 1000 }),
+		).rejects.toThrow("Unknown defect");
+		await expect(
+			runBoundedExecution(
+				Effect.die(() => "secret"),
+				{ timeoutMs: 1000 },
+			),
+		).rejects.toThrow("Unknown defect");
+	});
+
+	it("surfaces bounded timeouts as typed TimeoutError failures", async () => {
+		const failure = await runBoundedExecution(Effect.never, {
+			timeoutMs: 10,
+		}).then(
+			() => {
+				throw new Error("expected the bounded execution to time out");
+			},
+			(error) => error,
+		);
+		expect(Cause.isTimeoutError(failure)).toBe(true);
+	});
+
+	it("does not leak the raw defect message into logs", async () => {
+		const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		try {
+			await runBoundedExecution(
+				Effect.die(new Error("credential-bearing defect")),
+				{ timeoutMs: 1000 },
+			);
+		} catch {
+			// Expected throw; the assertion below is the real check.
+		}
+		const logged = errorSpy.mock.calls.map((call) => call.join(" ")).join("\n");
+		expect(logged).toContain("Unexpected execution defect");
+		expect(logged).not.toContain("credential-bearing defect");
+		errorSpy.mockRestore();
 	});
 });

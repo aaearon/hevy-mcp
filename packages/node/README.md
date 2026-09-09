@@ -226,10 +226,32 @@ import { runStdioServer } from "hevy-mcp";
 await runStdioServer();
 ```
 
+The runtime-owned runners resolve after startup while the transport remains
+active. They return a lifecycle handle with an idempotent `close()` method for
+embedding callers that need to initiate shutdown directly.
+
 `createNodeMcpServer` is the side-effect-free embedding entry: it validates the
 supplied key locally, but never reads environment variables, probes Hevy,
 connects a transport, or installs process lifecycle
 handlers. The CLI-only `runStdioServer` function owns those concerns.
+
+## Runtime model
+
+The Node adapter owns the process Scope. Its scoped lifecycle acquires
+telemetry, signal handlers, and the selected transport, then finalizes them on
+shutdown. Core owns a nested server Scope for the MCP runtime and shared
+exercise-template cache. Each tool or resource invocation gets a request Scope
+whose deadline and MCP request signal interrupt the underlying Effect request.
+
+These internals do not replace the Promise embedding API. `createNodeMcpServer`
+and `runStdioServer` remain Promise entry points; Effect-typed variants, where
+provided, are additive. Importing `hevy-mcp` remains side-effect-free.
+
+Retry, timeout, and interruption decisions for Hevy requests are Effect-owned
+in the shared client. The hosted Worker is not Effect-wide: its OAuth,
+bindings, and request handling remain Promise-based. Tool contracts continue
+to use Zod, CLI/environment parsing remains throwing parser code, and Kubb
+generated internals are not part of the public package API.
 
 <details>
 <summary><strong>Use bunx instead</strong></summary>
@@ -369,7 +391,7 @@ can request confirmation.
 | Body measurements  | `create-body-measurement`   | Create a dated body measurement.                                                                                       |
 | Body measurements  | `update-body-measurement`   | Update the body measurement for an existing date.                                                                      |
 
-`create-routine` requires a top-level `routine` envelope with a required `exercises` array; fields use snake_case at every level:
+`create-routine` and `update-routine` require a top-level `routine` envelope with a non-empty `exercises` array; each exercise must contain at least one set, and fields use snake_case at every level:
 
 ```json
 {

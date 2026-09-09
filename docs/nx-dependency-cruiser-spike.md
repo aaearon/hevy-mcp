@@ -3,7 +3,7 @@
 This stacked follow-up targets PR #890 and moves local repository orchestration
 onto Nx plus dependency-cruiser. The canonical repository models own policy
 facts; Nx owns project discovery, target invocation, dependency ordering,
-affected selection, and cache policy. Root npm aliases remain compatibility
+affected selection, and cache policy. Root pnpm aliases remain compatibility
 entrypoints for contributors and external automation, not a second owner of
 aggregate membership or workflow orchestration. GitHub permissions,
 environments, deployment mechanics, and Changesets remain explicit owners where
@@ -11,29 +11,29 @@ they carry credentials or release policy.
 
 ## Run the proof of concept
 
-Nx discovers the six npm workspaces from `packages/*` and the root
+Nx discovers the six pnpm workspaces from `packages/*` and the root
 `repository` project from `project.json`:
 
 ```sh
-npx nx show projects
-npx nx show project repository --json
-npx nx graph --file=.nx/project-graph.html
+pnpm exec nx show projects
+pnpm exec nx show project repository --json
+pnpm exec nx graph --file=.nx/project-graph.html
 ```
 
 The graph file is an inspection artifact under ignored `.nx/`; do not commit
 it. To inspect the task graph without writing a graph file, use:
 
 ```sh
-npx nx report
-npx nx show project repository --json
+pnpm exec nx report
+pnpm exec nx show project repository --json
 ```
 
 Run the control-plane aggregate and an explicit clean-base affected query with
 no dependency on a dirty local `main`:
 
 ```sh
-npx nx run repository:control-plane
-npx nx affected --target=control-plane --base=origin/main --head=HEAD
+pnpm exec nx run repository:control-plane
+pnpm exec nx affected --target=control-plane --base=origin/main --head=HEAD
 ```
 
 The aggregate target and member identities come from the canonical validation
@@ -41,7 +41,7 @@ lane model. The contributor tables in [`docs/test-lanes.md`](./test-lanes.md)
 show the current lane and aggregate membership, while `project.json` is the
 source for target dependencies. Do not
 copy a target or member count into prose: derive the current graph with
-`npx nx show project repository --json` (or `npx nx graph`). Contributor-facing
+`pnpm exec nx show project repository --json` (or `pnpm exec nx graph`). Contributor-facing
 root aliases remain supported compatibility entrypoints; internal-only lanes
 use their corresponding Nx targets directly, so command text is not duplicated
 in the policy model.
@@ -50,21 +50,21 @@ Run the dependency rules through the combined boundary lane and exercise the
 representative pack target:
 
 ```sh
-npm run check:boundaries
-npx nx run repository:check:boundaries
-npx nx run repository:pack:artifacts --skip-nx-cache
+pnpm run check:boundaries
+pnpm exec nx run repository:check:boundaries
+pnpm exec nx run repository:pack:artifacts --skip-nx-cache
 ```
 
 The pack target builds the publishable Node server and CLI before writing
 `.nx/pack/hevy-mcp-*.tgz` and `.nx/pack/chrisdoc-hevy-cli-*.tgz`. This is
-representative artifact metadata only: Node and CLI npm packs are exercised;
+representative artifact metadata only: Node and CLI pnpm packs are exercised;
 Worker and Docker candidate provenance is absent.
 
 ## Migration contract
 
 - Nx target metadata and executors own local task orchestration, including
   inputs, outputs, cacheability, dependency ordering, and aggregate invocation.
-  Root npm scripts remain compatibility aliases where they are retained; they
+  Root pnpm scripts remain compatibility aliases where they are retained; they
   are not an independent aggregate registry.
 - Deterministic checks and test lanes may be cached; live integration, nightly,
   release/version, package, Worker deployment/dry-run, performance, and
@@ -74,9 +74,9 @@ Worker and Docker candidate provenance is absent.
   use isolated runtimes and can run concurrently. The `pack:artifacts` target
   is the sole writer for publishable output; package smoke and Publint targets
   consume its immutable tarballs concurrently.
-- Vitest and token-cost arguments pass through Nx with `npx nx run ... -- ...`;
+- Vitest and token-cost arguments pass through Nx with `pnpm exec nx run ... -- ...`;
   no workflow needs to depend on undocumented Nx executor internals.
-- `npm ci`, Docker actions, Wrangler deployment commands, Changesets actions,
+- `pnpm install --frozen-lockfile`, Docker actions, Wrangler deployment commands, Changesets actions,
   commit verification, secrets, and environment gates remain explicit because
   they are infrastructure or release policy rather than local project graph
   concerns.
@@ -97,7 +97,7 @@ Worker and Docker candidate provenance is absent.
 - Target metadata records representative inputs and outputs: Kubb generated
   client sources, emitted `dist` directories only for publishable package
   builds, Node build output, server/plugin manifests, coverage and performance
-  evidence, and the explicit npm-pack target described above. Type-check-only
+  evidence, and the explicit pnpm-pack target described above. Type-check-only
   workspace builds declare no output because they are side-effect free.
 
 This is a local orchestration migration, not a universal runtime/product
@@ -110,7 +110,7 @@ through the shared facade rather than maintaining duplicate registries.
 | Evidence                            | Current migration result                                                                                         |
 | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Canonical validation policy         | `repository/validation-lanes.json`, validated by `scripts/check-control-plane.mjs`                               |
-| Current aggregate and target counts | Derived at check time from the lane model and `project.json`; see `npx nx show project repository --json`        |
+| Current aggregate and target counts | Derived at check time from the lane model and `project.json`; see `pnpm exec nx show project repository --json`  |
 | Current workflow command ownership  | Workflows invoke Nx targets; credentials, matrices, permissions, and deployment conditions remain workflow-owned |
 | Historical migration measurements   | Not repeated here; preserve only as immutable before-adoption evidence when a comparison is required             |
 
