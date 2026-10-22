@@ -408,6 +408,11 @@ export function createWorkerHandler(dependencies: WorkerDependencies = {}) {
 			});
 		}
 
+		// Consume a clone of the body up front. Upstream did this implicitly via
+		// its feedback-call sniffing (removed in this fork); without it workerd
+		// resets the connection ("fetch failed" -> 500) when a response such as
+		// 502 or 415 is sent before the request body has been read.
+		await request.clone().arrayBuffer();
 		const deadline = Date.now() + WORKER_INVOCATION_TIMEOUT_MS;
 		let validation: HevyApiKeyValidation;
 		try {

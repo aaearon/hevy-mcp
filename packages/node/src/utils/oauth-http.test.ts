@@ -465,4 +465,55 @@ describe("http+oauth transport", () => {
 		expect(token.statusCode).toBe(401);
 		expect(JSON.parse(token.body).error).toBe("invalid_client");
 	});
+
+	it("answers wrong HTTP methods on OAuth endpoints with 405", async () => {
+		const { port } = await startServer("secret");
+		for (const [method, path, allow] of [
+			["POST", "/authorize", "GET"],
+			["GET", "/token", "POST"],
+			["GET", "/register", "POST"],
+			["GET", "/revoke", "POST"],
+			["PUT", "/consent", "GET, POST"],
+		] as const) {
+			const result = await call(port, method, path);
+			expect(result.statusCode).toBe(405);
+			expect(result.headers.allow).toBe(allow);
+		}
+	});
+
+	it("rejects /authorize for an unknown client", async () => {
+		const { port } = await startServer("secret");
+		const result = await call(port, "GET", "/authorize?client_id=nope");
+		expect(result.statusCode).toBe(400);
+		expect(result.body).toContain("Unknown OAuth client.");
+	});
+
+	it("serves the consent page on GET and rejects a malformed session", async () => {
+		const { port } = await startServer("secret");
+		const ok = await call(port, "GET", `/consent?session=${"a".repeat(32)}`);
+		expect(ok.statusCode).toBe(200);
+		const bad = await call(port, "GET", "/consent?session=nope");
+		expect(bad.statusCode).toBe(400);
+	});
+
+	it("rejects a consent post for an unknown session", async () => {
+		const { port } = await startServer("secret");
+		const result = await form(port, "/consent", {
+			session: "b".repeat(32),
+			password: "secret",
+		});
+		expect(result.statusCode).toBe(400);
+		expect(result.body).toContain("Session expired or not found.");
+	});
+
+	it("rejects unsupported grant types", async () => {
+		const { port } = await startServer("secret");
+		const { client } = await registerClient(port);
+		const result = await form(port, "/token", {
+			grant_type: "password",
+			client_id: client.client_id,
+		});
+		expect(result.statusCode).toBe(400);
+		expect(JSON.parse(result.body).error).toBe("unsupported_grant_type");
+	});
 });

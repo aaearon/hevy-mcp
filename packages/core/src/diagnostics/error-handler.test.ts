@@ -77,6 +77,29 @@ describe("createErrorResponse", () => {
 		});
 	});
 
+	it("projects execution metadata into the failure event", () => {
+		expect(
+			createMcpToolFailureEvent("update-workout", ErrorType.NETWORK_ERROR, {
+				category: "HevyHttpError",
+				code: "HEVY_RETRY_EXHAUSTED",
+				execution: {
+					outcome: "terminal_failure",
+					phase: "dispatch",
+					operation_safety: "idempotent-write",
+					commit_state: "unknown",
+					safe_to_retry: false,
+				},
+			}),
+		).toMatchObject({
+			"error.code": "HEVY_RETRY_EXHAUSTED",
+			"hevy.api.outcome": "terminal_failure",
+			"hevy.api.phase": "dispatch",
+			"hevy.api.operation_safety": "idempotent-write",
+			"hevy.api.commit_state": "unknown",
+			"hevy.api.safe_to_retry": false,
+		});
+	});
+
 	it("renders caller cancellation as a client cancellation", () => {
 		const result = createErrorResponse(
 			new HevyHttpError("The request was canceled by the client.", {
