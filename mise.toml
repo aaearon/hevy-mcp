@@ -1,6 +1,12 @@
 [settings]
 lockfile = true
 
+[env]
+# Cloudflare CLIs (cf, wrangler) phone home by default; keep them off.
+DO_NOT_TRACK = "1"
+CF_SEND_TELEMETRY = "false"
+WRANGLER_SEND_METRICS = "false"
+
 [tools]
 node = "24"
 pnpm = "12.0.0"

@@ -91,6 +91,53 @@ describe("CLI process contract", () => {
 		expect(io.err).toContain("HEVY_API_KEY");
 	});
 
+	it("writes opt-in structured command events to stderr", async () => {
+		const io = streams();
+		const getWorkouts = vi.fn().mockResolvedValue({
+			page: 1,
+			page_count: 1,
+			workouts: [],
+		});
+		const code = await runCli({
+			argv: ["workouts", "list", "--json"],
+			env: { HEVY_API_KEY: "key", HEVY_CLI_LOG: "true" },
+			streams: io.streams,
+			clientFactory: () => mockClient(getWorkouts),
+		});
+
+		expect(code).toBe(0);
+		expect(JSON.parse(io.err)).toMatchObject({
+			event: "cli.command",
+			outcome: "success",
+			command: "workouts",
+			subcommand: "list",
+			exit_code: 0,
+		});
+		expect(io.out).toContain('"workouts":[]');
+	});
+
+	it("does not include raw arguments in structured CLI error logs", async () => {
+		const io = streams();
+		const privateValue = "private-workout-reference";
+		const code = await runCli({
+			argv: ["workouts", "list", "--page", privateValue],
+			env: { HEVY_API_KEY: "key", HEVY_CLI_LOG: "true" },
+			streams: io.streams,
+			clientFactory: () => mockClient(vi.fn()),
+		});
+		const event = JSON.parse(io.err.split("\n", 1)[0] ?? "{}");
+
+		expect(code).toBe(2);
+		expect(event).toMatchObject({
+			event: "cli.command",
+			outcome: "failure",
+			command: "workouts",
+			subcommand: "list",
+			exit_code: 2,
+		});
+		expect(io.err).not.toContain(privateValue);
+	});
+
 	it("returns a concise semantic error without calling the API", async () => {
 		const io = streams();
 		const getWorkouts = vi.fn();
@@ -284,7 +331,7 @@ describe("CLI process contract", () => {
 		});
 	});
 
-	it("builds operations from the execution-bound client proxy", async () => {
+	it("builds operations from the raw client and forwards execution options", async () => {
 		const io = streams();
 		const signal = new AbortController().signal;
 		const deadline = Date.now() + 1_000;
@@ -306,9 +353,7 @@ describe("CLI process contract", () => {
 		expect(code).toBe(0);
 		expect(spy).toHaveBeenCalledTimes(1);
 		const [operationsClient] = spy.mock.calls[0];
-		expect(operationsClient).not.toBe(rawClient);
-		getWorkouts.mockClear();
-		await operationsClient.getWorkouts({ page: 1, pageSize: 5 });
+		expect(operationsClient).toBe(rawClient);
 		expect(getWorkouts).toHaveBeenCalledWith(
 			{ page: 1, pageSize: 5 },
 			expect.objectContaining({ signal, deadline }),
@@ -350,10 +395,12 @@ function mutationClient(): HevyClient {
 		}),
 		createWorkout: vi.fn().mockResolvedValue({ id: "workout-1" }),
 		updateWorkout: vi.fn().mockResolvedValue({ id: "workout-1" }),
-		createRoutine: vi.fn().mockResolvedValue({ id: "routine-1" }),
-		updateRoutine: vi.fn().mockResolvedValue({ id: "routine-1" }),
+		createRoutine: vi.fn().mockResolvedValue({ routine: { id: "routine-1" } }),
+		updateRoutine: vi.fn().mockResolvedValue({ routine: { id: "routine-1" } }),
 		createExerciseTemplate: vi.fn().mockResolvedValue({ id: 2 }),
-		createRoutineFolder: vi.fn().mockResolvedValue({ id: 3 }),
+		createRoutineFolder: vi
+			.fn()
+			.mockResolvedValue({ routine_folder: { id: 3 } }),
 		createBodyMeasurement: vi.fn().mockResolvedValue({
 			date: "2024-01-02",
 			weight_kg: 80,

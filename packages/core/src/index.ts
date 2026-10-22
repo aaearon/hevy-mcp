@@ -15,7 +15,7 @@ export {
 	type StructuredExecutionError,
 	type StructuredExecutionProjection,
 	type ToolExecutionContext,
-} from "./execution.js";
+} from "./runtime/execution.js";
 
 export {
 	createHevyMcpServer,
@@ -26,6 +26,15 @@ export {
 } from "./server.js";
 export { preloadHevyToolSchemas } from "./tools/register.js";
 export {
+	FEEDBACK_MAX_MESSAGE_LENGTH,
+	FEEDBACK_TOOL_DESCRIPTION,
+} from "./feedback-metadata.js";
+export {
+	createUnavailableAgentFeedbackRecorder,
+	type AgentFeedbackRecorder,
+	type FeedbackResult,
+} from "./feedback-recorder.js";
+export {
 	memoizeObservationScope,
 	type ToolCompletionObservation,
 	type ToolInvocationObservation,
@@ -34,7 +43,7 @@ export {
 	type ToolObservationScope,
 	type ToolObserver,
 	type ToolResultObservation,
-} from "./observation.js";
+} from "./diagnostics/observation.js";
 export {
 	type AsyncCacheOptions,
 	type CacheGetOptions,
@@ -50,14 +59,19 @@ export {
 	SAFE_ERROR_CODES,
 	SAFE_HTTP_METHODS,
 	SAFE_STACK_SOURCES,
-} from "./utils/error-policy.js";
-export { TELEMETRY_ARGUMENT_KEYS } from "./utils/telemetry-contract.js";
+} from "./diagnostics/error-policy.js";
+export {
+	formatSafeErrorLogMessage,
+	isClientTransportError,
+	isSafeErrorMessage,
+} from "./diagnostics/safe-log-message.js";
+export { TELEMETRY_ARGUMENT_KEYS } from "./diagnostics/telemetry-contract.js";
 export {
 	createMcpToolFailureEvent,
 	createExecutionErrorProjection,
 	type McpToolFailureEvent,
-} from "./utils/error-handler.js";
-export { ErrorType } from "./utils/error-policy.js";
+} from "./diagnostics/error-handler.js";
+export { ErrorType } from "./diagnostics/error-policy.js";
 export {
 	bucketCount,
 	type ResultCountBucket,
@@ -68,6 +82,7 @@ export {
 	MCP_SPAN_CATEGORIES,
 	type McpSpanCategory,
 } from "./utils/tool-taxonomy.js";
+export { sanitizeDiagnosticText } from "./utils/sanitize-diagnostic-text.js";
 export {
 	ApiError,
 	ClientNotInitializedError,
@@ -93,11 +108,11 @@ export {
 	HevyOperationsService,
 	ToolExecutionContextService,
 	ToolObserverService,
-} from "./effect-services.js";
+} from "./runtime/effect-services.js";
 export {
 	createCoreServiceLayer,
 	createToolObserverLayer,
 	type CoreServiceLayerOptions,
 	type CoreServiceIdentifiers,
 	type CoreServiceLayer,
-} from "./effect-layer.js";
+} from "./runtime/effect-layer.js";

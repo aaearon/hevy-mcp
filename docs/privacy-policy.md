@@ -23,7 +23,7 @@ The hosted service processes the following information to provide MCP tools:
 
 The service does not intentionally collect conversation history, prompts, tool
 arguments, tool results, workout content, measurement values, raw client IP
-addresses, or API keys in its operational telemetry.
+addresses, or API keys. This fork ships no telemetry, so no usage or diagnostic data is sent to the maintainers.
 
 ## How information is used
 

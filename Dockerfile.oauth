@@ -11,7 +11,7 @@
 # lifecycle/build scripts (postinstall, node-gyp, prebuild-install) by
 # default -- exactly what better-sqlite3 needs to obtain its binary. This
 # fork's `pnpm-workspace.yaml` allowlists it (and the other packages already
-# vetted for scripts) via `onlyBuiltDependencies`, so both `pnpm install`
+# vetted for scripts) via `allowBuilds`, so both `pnpm install`
 # runs below build it instead of silently producing a broken container.
 # Verify after any dependency change or `better-sqlite3` upgrade:
 #   docker build -f Dockerfile.oauth -t hevy-oauth-test .

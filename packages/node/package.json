@@ -34,19 +34,19 @@
 		"build:standalone": "cross-env HEVY_MCP_BUILD_MODE=standalone tsdown -c tsdown.config.ts"
 	},
 	"dependencies": {
-		"@modelcontextprotocol/node": "^2.0.0",
-		"@modelcontextprotocol/server": "^2.0.0",
+		"@modelcontextprotocol/node": "2.1.1",
+		"@modelcontextprotocol/server": "2.3.1",
 		"better-sqlite3": "^12.11.1",
-		"effect": "^4.0.0-rc.112",
-		"zod": "^4.5.4"
+		"effect": "^4.0.5",
+		"zod": "^4.6.7"
 	},
 	"devDependencies": {
 		"@hevy-mcp/core": "workspace:*",
 		"@hevy-mcp/hevy-client": "workspace:*",
 		"@types/better-sqlite3": "^9.6.0",
-		"@types/node": "^26.4.1",
+		"@types/node": "^26.6.5",
 		"cross-env": "^10.1.0",
-		"tsdown": "^0.22.14",
+		"tsdown": "^0.23.1",
 		"typescript": "^7.0.2"
 	},
 	"engines": {

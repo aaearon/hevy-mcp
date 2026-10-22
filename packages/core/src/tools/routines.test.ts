@@ -12,8 +12,8 @@ import {
 	workoutsListDescriptor,
 	type HevyOperations,
 } from "@hevy-mcp/operations";
-import type { ToolExecutionContext } from "../execution.js";
-import type { McpToolResponse } from "../utils/response-contracts.js";
+import type { ToolExecutionContext } from "../runtime/execution.js";
+import type { McpToolResponse } from "../protocol/response-contracts.js";
 import { HevyHttpError } from "@hevy-mcp/hevy-client";
 import { Effect } from "effect";
 import { describe, expect, it, vi } from "vitest";
@@ -22,7 +22,7 @@ import { getResultTelemetry } from "../utils/result-telemetry.js";
 import { createToolRuntime } from "./tool-runtime.js";
 import { registerToolDefinition } from "./define-tool.js";
 import { routineToolDefinitions } from "./routines.js";
-import { HevyOperationsService } from "../effect-services.js";
+import { HevyOperationsService } from "../runtime/effect-services.js";
 
 function register(
 	client: HevyClient | null,
@@ -378,12 +378,25 @@ describe("routine tools", () => {
 		});
 	});
 
+	it("does not expose an unrecognized create response as an empty routine", async () => {
+		const client = createMockHevyClient();
+		client.createRoutine.mockResolvedValue({ routine: {} });
+		const tool = register(client);
+
+		const response = await handler(tool, "create-routine")(routineInput);
+
+		expect(response.structuredContent).toMatchObject({
+			created: true,
+			commit_state: "confirmed",
+			routine: null,
+			routine_id: null,
+		});
+	});
+
 	it("returns the authoritative routine and ID when creation has a body", async () => {
 		const client = createMockHevyClient();
 		client.createRoutine.mockResolvedValue({
-			id: "routine-1",
-			title: "Push",
-			exercises: [],
+			routine: { id: "routine-1", title: "Push", exercises: [] },
 		});
 		const tool = register(client);
 
@@ -399,8 +412,8 @@ describe("routine tools", () => {
 
 	it("passes nested snake_case routine payloads to create and update", async () => {
 		const client = createMockHevyClient();
-		client.createRoutine.mockResolvedValue(routineInput.routine);
-		client.updateRoutine.mockResolvedValue(routineInput.routine);
+		client.createRoutine.mockResolvedValue({ routine: routineInput.routine });
+		client.updateRoutine.mockResolvedValue({ routine: routineInput.routine });
 		const tool = register(client);
 
 		await handler(tool, "create-routine")(routineInput);
@@ -451,10 +464,11 @@ describe("routine tools", () => {
 
 		expect(createResponse).not.toMatchObject({ isError: true });
 		expect(updateResponse).not.toMatchObject({ isError: true });
+		// create-routine renders the whole structured output (upstream 6.2.x);
+		// the unwrapped routine sits under `routine`.
 		expect(renderedJson(createResponse)).toMatchObject({
-			id: "r1",
-			title: "Push",
-			folder_id: 3,
+			routine_id: "r1",
+			routine: { id: "r1", title: "Push", folder_id: 3 },
 		});
 		expect(renderedJson(updateResponse)).toMatchObject({
 			id: "r1",
@@ -480,8 +494,8 @@ describe("routine tools", () => {
 		});
 
 		expect(renderedJson(createResponse)).toMatchObject({
-			id: "r2",
-			title: "Pull",
+			routine_id: "r2",
+			routine: { id: "r2", title: "Pull" },
 		});
 		expect(renderedJson(updateResponse)).toMatchObject({
 			id: "r2",

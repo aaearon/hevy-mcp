@@ -45,6 +45,53 @@
   - The fork-only `http+oauth` Node transport keeps working: the OAuth
     authorization-server routes and bearer gate plug into upstream's reworked
     `startStreamableHttpServer` through the `HttpServerExtensions` hooks.
+## 0.2.15
+
+### Patch Changes
+
+- [#1249](https://github.com/chrisdoc/hevy-mcp/pull/1249) [`678c74f`](https://github.com/chrisdoc/hevy-mcp/commit/678c74fe90dec03716ee1d76b5b93566008e750d) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Upgrade workspace dependencies across Effect, zod, OpenTelemetry, Sentry, the MCP SDK, kubb codegen, Cloudflare tooling, and the vitest 5 test stack. The client regenerates unchanged in shape, with kubb 5.10 emitting tighter response unions and an indexed QUERY method entry; worker span fallbacks implement the new `spanContext` member required by current workers types.
+
+## 0.2.14
+
+### Patch Changes
+
+- [#1239](https://github.com/chrisdoc/hevy-mcp/pull/1239) [`ca7a5d7`](https://github.com/chrisdoc/hevy-mcp/commit/ca7a5d71c0e41867df4656c86307ab457b23f500) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Consolidate native client request setup and test scaffolding while preserving public signatures, request controls, and test scenarios. Reduce test import overhead and CPU contention without narrowing validation lanes.
+
+## 0.2.13
+
+### Patch Changes
+
+- [#1235](https://github.com/chrisdoc/hevy-mcp/pull/1235) [`6698ef1`](https://github.com/chrisdoc/hevy-mcp/commit/6698ef1e06db8f0305991e2082614dc4d5ef71cd) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Update runtime workspace dependencies and patch vulnerable Nx transitive dependencies.
+
+## 0.2.12
+
+### Patch Changes
+
+- [#1229](https://github.com/chrisdoc/hevy-mcp/pull/1229) [`0cab669`](https://github.com/chrisdoc/hevy-mcp/commit/0cab669918477f2e4d1d82d7cfec89faa066be30) Thanks [@codebeetl](https://github.com/codebeetl)! - Return the saved routine or folder from create-routine, update-routine, and create-routine-folder by unwrapping Hevy's `routine`/`routine_folder` response envelopes, and declare structured output schemas for update-routine and create-routine-folder. The public client's `createRoutine()` also returns the unwrapped routine.
+
+## 0.2.11
+
+### Patch Changes
+
+- [#1223](https://github.com/chrisdoc/hevy-mcp/pull/1223) [`c8a1092`](https://github.com/chrisdoc/hevy-mcp/commit/c8a109237ee2df27dbedc19d02637ce253b4cf2d) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Refresh the generated Hevy client and runtime dependency resolutions for the updated toolchain.
+
+## 0.2.10
+
+### Patch Changes
+
+- [#1193](https://github.com/chrisdoc/hevy-mcp/pull/1193) [`4cd00b1`](https://github.com/chrisdoc/hevy-mcp/commit/4cd00b17724792de7d80040d6dbc7f5c8c0fdbf2) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Expose execution options through the client type barrel for the CLI.
+
+## 0.2.9
+
+### Patch Changes
+
+- [#1165](https://github.com/chrisdoc/hevy-mcp/pull/1165) [`f35465e`](https://github.com/chrisdoc/hevy-mcp/commit/f35465e55023b9d77af993d674e5e218a3424785) Thanks [@dependabot](https://github.com/apps/dependabot)! - Regenerate the Hevy client with the updated Kubb toolchain.
+
+## 0.2.8
+
+### Patch Changes
+
+- [#1155](https://github.com/chrisdoc/hevy-mcp/pull/1155) [`bc2fb86`](https://github.com/chrisdoc/hevy-mcp/commit/bc2fb86ecc1b2a1b24df9a570c494ef09f006fc2) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Manual dependency upgrade (Dependabot is blocked on pnpm 12): zod 4.5.4 to 4.6.5, effect 4.0.0-rc.112 to 4.0.0-rc.115, wrangler 4.128.0 to 4.131.2, plus dev-dependency updates. Adapt Worker tracing doubles to the new @cloudflare/workers-types Span API.
 
 ## 0.2.7
 

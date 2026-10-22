@@ -204,6 +204,12 @@ url = "https://github.com/pnpm/pnpm/releases/download/v12.0.0/pnpm-darwin-arm64.
 url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/530962213"
 provenance = "github-attestations"
 
+[tools.pnpm."platforms.macos-x64"]
+checksum = "sha256:7fd809ea70a20e0911da456a533731deb530dbde7f3c97a030c97da143ed7466"
+url = "https://github.com/pnpm/pnpm/releases/download/v12.0.0/pnpm-darwin-x64.tar.gz"
+url_api = "https://api.github.com/repos/pnpm/pnpm/releases/assets/530962209"
+provenance = "github-attestations"
+
 [tools.pnpm."platforms.windows-x64"]
 checksum = "sha256:092f60a1304fd61df44c6c534d424144146e41cc9b3cb0557372baadc00f29d5"
 url = "https://github.com/pnpm/pnpm/releases/download/v12.0.0/pnpm-win32-x64.zip"

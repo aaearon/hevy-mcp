@@ -118,6 +118,7 @@ dist
 # Serverless directories
 .serverless/
 .wrangler/
+.cloudflare/
 worker-configuration.d.ts
 
 # FuseBox cache
@@ -142,4 +143,12 @@ worker-configuration.d.ts
 # env
 .env
 .aider*
+
+# Operating systems
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
 .dev.vars

@@ -475,7 +475,8 @@ describe("@hevy-mcp/hevy-client", () => {
 				return { finish: vi.fn() };
 			},
 		});
-		const deadline = Date.now() + 10;
+		// Leave scheduling headroom; the 10 ms attempt timeout triggers the failure.
+		const deadline = Date.now() + 1_000;
 
 		await expect(
 			client.getWorkout("workout-1", { deadline }),
@@ -1316,6 +1317,52 @@ describe("@hevy-mcp/hevy-client", () => {
 
 		expect(fetchMock).toHaveBeenCalledTimes(22);
 	});
+
+	it("unwraps the routine envelope returned by createRoutine", async () => {
+		const client = createHevyClient({
+			apiKey: "secret-key",
+			fetch: vi
+				.fn()
+				.mockResolvedValue(
+					response({ routine: { id: "routine-1", title: "Push" } }, 201),
+				),
+			maxGetRetries: 0,
+		});
+
+		await expect(client.createRoutine({} as never)).resolves.toEqual({
+			id: "routine-1",
+			title: "Push",
+		});
+	});
+
+	it("returns a bare routine reply from createRoutine unchanged", async () => {
+		const client = createHevyClient({
+			apiKey: "secret-key",
+			fetch: vi
+				.fn()
+				.mockResolvedValue(response({ id: "routine-1", title: "Push" }, 201)),
+			maxGetRetries: 0,
+		});
+
+		await expect(client.createRoutine({} as never)).resolves.toEqual({
+			id: "routine-1",
+			title: "Push",
+		});
+	});
+
+	it.each(["", "{}"])(
+		"returns undefined for an empty createRoutine response (%j)",
+		async (body) => {
+			const client = createHevyClient({
+				apiKey: "test-key",
+				fetch: vi.fn().mockResolvedValue(new Response(body, { status: 201 })),
+				maxGetRetries: 0,
+			});
+			await expect(
+				client.createRoutine({ routine: { title: "Fixture", exercises: [] } }),
+			).resolves.toBeUndefined();
+		},
+	);
 
 	it("bounds an over-budget Retry-After by the absolute deadline", async () => {
 		vi.useFakeTimers();

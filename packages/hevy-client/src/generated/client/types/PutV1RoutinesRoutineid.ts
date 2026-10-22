@@ -23,7 +23,9 @@ export type PutV1RoutinesRoutineidHeaders = {
   "api-key": string;
 };
 
-export type PutV1RoutinesRoutineidStatus200 = Routine;
+export type PutV1RoutinesRoutineidStatus200 = {
+  routine?: Routine;
+};
 
 export type PutV1RoutinesRoutineidStatus400 = {
   /**
@@ -59,7 +61,4 @@ export type PutV1RoutinesRoutineidResponses = {
 /**
  * @description Union of all possible responses
  */
-export type PutV1RoutinesRoutineidResponse =
-  | PutV1RoutinesRoutineidStatus200
-  | PutV1RoutinesRoutineidStatus400
-  | PutV1RoutinesRoutineidStatus404;
+export type PutV1RoutinesRoutineidResponse = PutV1RoutinesRoutineidStatus200;

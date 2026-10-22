@@ -5,13 +5,15 @@ on:
     branches:
       - main
   pull_request:
-    branches:
-      - main
+    # Stacked PRs target their parent branch, not only main.
 
 permissions:
   contents: read
 
 env:
+  DO_NOT_TRACK: "1"
+  CF_SEND_TELEMETRY: "false"
+  WRANGLER_SEND_METRICS: "false"
   ROLLUP_SKIP_NODEJS_NATIVE_BUILD: "true"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
@@ -36,7 +38,6 @@ jobs:
       matrix:
         node-version:
           - "24.x"
-          - "26.x"
     # Nx 23 reads these self-hosted names. Require both repository secrets so
     # fork PRs, or partially configured environments, use only local caching.
     env:
@@ -50,7 +51,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 12.0.0
 
@@ -61,7 +62,7 @@ jobs:
           cache: "pnpm"
 
       - name: Set up mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -100,16 +101,12 @@ jobs:
           github.actor != 'dependabot[bot]' &&
           github.head_ref != 'changeset-release/main'
         env:
-          BASE_REF: ${{ github.base_ref }}
-        run: |
-          npx changeset status --since="origin/${BASE_REF}"
-          npx nx run repository:check:package-changesets -- --since "origin/${BASE_REF}"
+          CHANGESET_BASE_REF: origin/${{ github.event.pull_request.base.ref }}
+        run: pnpm run check:changeset
 
-      - name: Run Node 26 build
-        if: matrix.node-version == '26.x'
+      - name: Build package before Node 24 validation
+        if: matrix.node-version == '24.x'
         run: npx nx run repository:build
-        env:
-          CODECOV_TOKEN: ${{ matrix.node-version == '24.x' && secrets.CODECOV_TOKEN || '' }}
 
       - name: Run Node 24 validation graph
         if: ${{ !cancelled() && matrix.node-version == '24.x' }}
@@ -119,16 +116,9 @@ jobs:
         run: >-
           npx nx run-many --projects=repository --targets=test:unit,check:types,check,worker:dry-run,test:worker-http,test:contract,test:cli,test:worker,test:mcp,check:control-plane,check:exports,check:boundaries --parallel=4 --outputStyle=stream --excludeTaskDependencies
 
-      - name: Run Node 26 validation graph
-        if: ${{ !cancelled() && matrix.node-version == '26.x' }}
-        env:
-          HEVY_TEST_REPORT_MODE: ci
-        run: >-
-          npx nx run-many --projects=repository --targets=test:unit,check:types,check,check:server-manifest,test:mcp,check:control-plane,check:boundaries,check:exports --parallel=4 --outputStyle=stream
-
       - name: Upload test results to Codecov
         if: ${{ !cancelled() && matrix.node-version == '24.x' }}
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./test-results/unit-tests.xml
@@ -145,7 +135,7 @@ jobs:
 
       - name: Upload results to Codecov
         if: matrix.node-version == '24.x'
-        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
+        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
           files: ./coverage/unit/lcov.info,./coverage/mocked/lcov.info
@@ -165,7 +155,7 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
         with:
           version: 12.0.0
 
@@ -176,7 +166,7 @@ jobs:
           cache: "pnpm"
 
       - name: Set up mise
-        uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -224,10 +214,10 @@ jobs:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
 
       - name: Build Docker image
-        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           load: true
