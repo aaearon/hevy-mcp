@@ -58,8 +58,8 @@ export default defineConfig({
 			provider: "v8",
 			reportsDirectory: "coverage",
 			reporter: ["text", "lcov"],
-			// Apply thresholds only in the unit lane; other lanes upload partial
-			// reports to Codecov.
+			// Apply thresholds only in the unit lane; other lanes produce partial
+			// reports.
 			thresholds:
 				process.env.HEVY_UNIT_LANE === "1"
 					? { statements: 82, branches: 76, functions: 85, lines: 84 }
