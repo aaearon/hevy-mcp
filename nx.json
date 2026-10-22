@@ -90,7 +90,6 @@
 		"controlPlaneModels": ["{workspaceRoot}/repository/**/*"],
 		"unitSpecialInputs": [
 			"{workspaceRoot}/.dependency-cruiser.cjs",
-			"{workspaceRoot}/.cm/plugins/filters/findDiffLocation/index.js",
 			"{workspaceRoot}/packages/node/README.md",
 			"{workspaceRoot}/tools/oxlint/anti-slop/**/*",
 			"{workspaceRoot}/packages/worker/cloudflare.config.ts",

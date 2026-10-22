@@ -116,15 +116,6 @@ jobs:
         run: >-
           npx nx run-many --projects=repository --targets=test:unit,check:types,check,worker:dry-run,test:worker-http,test:contract,test:cli,test:worker,test:mcp,check:control-plane,check:exports,check:boundaries --parallel=4 --outputStyle=stream --excludeTaskDependencies
 
-      - name: Upload test results to Codecov
-        if: ${{ !cancelled() && matrix.node-version == '24.x' }}
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./test-results/unit-tests.xml
-          disable_search: true
-          report_type: test_results
-
       - name: Upload unit test results
         if: ${{ !cancelled() && matrix.node-version == '24.x' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -132,13 +123,6 @@ jobs:
           name: unit-test-results-node-24
           path: test-results/unit-tests.xml
           if-no-files-found: warn
-
-      - name: Upload results to Codecov
-        if: matrix.node-version == '24.x'
-        uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage/unit/lcov.info,./coverage/mocked/lcov.info
 
   package-performance:
     name: Package and performance (Node 24.x)
@@ -173,8 +157,6 @@ jobs:
 
       - name: Build package candidate
         run: npx nx run repository:build
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
       - name: Prepare shared package candidates
         if: ${{ !cancelled() }}

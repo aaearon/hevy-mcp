@@ -63,8 +63,7 @@ process-level matrix; see the scope limits in [test-lanes.md](./test-lanes.md#la
 [vitest.config.ts](../vitest.config.ts) owns V8 reporting, exclusions, and
 unit-lane thresholds. It does not currently declare an explicit all-production
 `coverage.include`. Unit and mocked reports are partial views, not one combined
-coverage score. [codecov.yml](../codecov.yml) owns hosted status policy; do not
-infer a new ratchet or patch requirement from a historical target.
+coverage score. CI uploads no coverage to third parties.
 
 Performance timing is informational; fixture and response correctness gate
 immediately. The current scenarios, report path, initial timing targets, and

@@ -286,4 +286,20 @@ describe("widened tripwires (hevy-mcp@6.2.1 vectors)", () => {
 
 		expect(missing).toEqual([]);
 	});
+
+	it("uploads nothing to Codecov or LinearB from CI", () => {
+		const workflowDir = join(REPO_ROOT, ".github/workflows");
+		const offenders = readdirSync(workflowDir)
+			.filter((file) => /\.ya?ml$/.test(file))
+			.filter((file) =>
+				/codecov|gitstream|linear-b/i.test(
+					readFileSync(join(workflowDir, file), "utf8"),
+				),
+			);
+
+		expect(offenders).toEqual([]);
+		expect(existsSync(join(REPO_ROOT, ".cm"))).toBe(false);
+		expect(existsSync(join(REPO_ROOT, "codecov.yml"))).toBe(false);
+		expect(existsSync(join(REPO_ROOT, ".codecov.yml"))).toBe(false);
+	});
 });

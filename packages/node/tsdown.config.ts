@@ -1,7 +1,6 @@
 /// <reference types="node" />
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { codecovRollupPlugin } from "@codecov/rollup-plugin";
 import { defineConfig } from "tsdown";
 
 interface PackageJsonMeta {
@@ -22,9 +21,6 @@ try {
 
 const { name, version } = parsed;
 const isStandaloneBuild = process.env.HEVY_MCP_BUILD_MODE === "standalone";
-const codecovToken = process.env.CODECOV_TOKEN?.trim() || undefined;
-const enableCodecovBundleAnalysis =
-	!isStandaloneBuild && codecovToken !== undefined;
 
 if (
 	!z.string().safeParse(name).success ||
@@ -91,13 +87,4 @@ export default defineConfig({
 			defaultHandler(level, log);
 		},
 	},
-	plugins: [
-		...(enableCodecovBundleAnalysis
-			? codecovRollupPlugin({
-					enableBundleAnalysis: true,
-					bundleName: "hevy-mcp",
-					uploadToken: codecovToken,
-				})
-			: []),
-	],
 });

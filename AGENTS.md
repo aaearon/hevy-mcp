@@ -296,6 +296,9 @@ Rules for maintainers and agents:
 - **Do not add any new outbound host.** That includes update checks, license
   pings, feature-flag fetches, and CDN loads. If a change genuinely needs one,
   it is a product decision, not an implementation detail — raise it first.
+- **CI must not upload to third parties.** No Codecov, no LinearB gitStream
+  (`.cm/`); upstream merges regrow both, so drop them again. Local coverage and
+  its thresholds stay.
 - **`packages/core` observer and feedback seams are deliberately KEPT but
   inert.** There is no default observer, and `tool-runtime.ts` selects the plain
   handler factory when none is passed. The `feedback` tool is registered only
