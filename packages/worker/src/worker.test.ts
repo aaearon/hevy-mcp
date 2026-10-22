@@ -27,6 +27,11 @@ import {
 } from "./worker.js";
 import worker from "./worker.js";
 import { createEffectClient } from "./test-fixtures/effect-client.js";
+import {
+	initializeMessage,
+	jsonPostRequest,
+	parseMcpResponse,
+} from "./test-fixtures/mcp.js";
 import { resetMemoryValidationCacheForTests } from "./validation-cache.js";
 
 const objectLikeSchema = z.object({}).passthrough();
@@ -71,11 +76,7 @@ function mcpRequest(
 	body: JSONObject,
 	headers: RequestInit["headers"] = validHeaders,
 ) {
-	return new Request("https://worker.example/mcp", {
-		method: "POST",
-		headers,
-		body: JSON.stringify(body),
-	});
+	return jsonPostRequest(body, headers);
 }
 
 function createMockClient(overrides: Partial<HevyClient> = {}): HevyClient {
@@ -88,19 +89,6 @@ function createMockClient(overrides: Partial<HevyClient> = {}): HevyClient {
 		}),
 		...overrides,
 	});
-}
-
-async function parseMcpResponse(response: Response): Promise<unknown> {
-	const text = await response.text();
-	if (response.headers.get("content-type")?.includes("text/event-stream")) {
-		const data = text
-			.split("\n")
-			.find((line) => line.startsWith("data: "))
-			?.slice(6);
-		if (!data) throw new Error(`Missing SSE data: ${text}`);
-		return JSON.parse(data);
-	}
-	return JSON.parse(text);
 }
 
 describe("Worker authentication helpers", () => {
@@ -138,6 +126,59 @@ describe("Cloudflare Worker routes and CORS", () => {
 			{},
 		);
 		expect(result.status).toBe(404);
+	});
+
+	it("serves a public health endpoint with allowlisted browser CORS", async () => {
+		const healthRequest = () =>
+			new Request("https://worker.example/health", {
+				headers: { origin: "https://chatgpt.com" },
+			});
+		const direct = await handler(healthRequest(), {});
+		const composed = await createWorkerFetchHandler()(healthRequest(), {
+			OAUTH_KV: {
+				get: vi.fn().mockResolvedValue(null),
+				put: vi.fn(),
+				delete: vi.fn(),
+				list: vi.fn().mockResolvedValue({ keys: [], list_complete: true }),
+			},
+		});
+		const preflight = await handler(
+			new Request("https://worker.example/health", {
+				method: "OPTIONS",
+				headers: { origin: "https://chatgpt.com" },
+			}),
+			{},
+		);
+		const rejected = await handler(
+			new Request("https://worker.example/health", {
+				headers: { origin: "https://browser.example" },
+			}),
+			{},
+		);
+		const wrongMethod = await createWorkerFetchHandler()(
+			new Request("https://worker.example/health", { method: "POST" }),
+			{},
+		);
+
+		for (const result of [direct, composed]) {
+			expect(result.status).toBe(200);
+			expect(await result.json()).toEqual({ status: "ok" });
+			expect(result.headers.get("cache-control")).toBe("no-store");
+			expect(result.headers.get("access-control-allow-origin")).toBe(
+				"https://chatgpt.com",
+			);
+		}
+		expect(createValidationClient).not.toHaveBeenCalled();
+		expect(preflight.status).toBe(204);
+		expect(preflight.headers.get("access-control-allow-methods")).toBe(
+			"GET, OPTIONS",
+		);
+		expect(preflight.headers.get("access-control-allow-headers")).toBe(
+			"Content-Type",
+		);
+		expect(rejected.status).toBe(403);
+		expect(wrongMethod.status).toBe(405);
+		expect(wrongMethod.headers.get("allow")).toBe("GET, OPTIONS");
 	});
 
 	it("allows configured browser origins and rejects unconfigured origins", async () => {
@@ -240,19 +281,10 @@ describe("Cloudflare Worker routes and CORS", () => {
 			createRequestClient: () => createMockClient(),
 		});
 		const result = await corsHandler(
-			mcpRequest(
-				{
-					jsonrpc: "2.0",
-					id: 1,
-					method: "initialize",
-					params: {
-						protocolVersion: "2025-11-25",
-						capabilities: {},
-						clientInfo: { name: "test", version: "1" },
-					},
-				},
-				{ ...validHeaders, origin: "https://github.dev" },
-			),
+			mcpRequest(initializeMessage(1, "test"), {
+				...validHeaders,
+				origin: "https://github.dev",
+			}),
 			{},
 		);
 
@@ -366,16 +398,7 @@ describe("Cloudflare Worker routes and CORS", () => {
 		},
 	);
 	describe("Hevy key validation cache", () => {
-		const initializeBody = {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: {
-				protocolVersion: "2025-11-25",
-				capabilities: {},
-				clientInfo: { name: "validation-cache-test", version: "1" },
-			},
-		};
+		const initializeBody = initializeMessage(1, "validation-cache-test");
 
 		it("skips a second upstream validation for the same key within the TTL", async () => {
 			const createValidationClient = vi.fn(() => createMockClient());
@@ -534,16 +557,7 @@ describe("real stateless SDK transport", () => {
 			createTransport,
 		});
 		const initialize = await handler(
-			mcpRequest({
-				jsonrpc: "2.0",
-				id: 1,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-11-25",
-					capabilities: {},
-					clientInfo: { name: "test", version: "1" },
-				},
-			}),
+			mcpRequest(initializeMessage(1, "test")),
 			{},
 		);
 		expect(initialize.status).toBe(200);
@@ -574,6 +588,21 @@ describe("real stateless SDK transport", () => {
 		);
 	});
 
+	it("does not advertise the feedback tool", async () => {
+		const handler = createWorkerHandler({
+			createValidationClient: () => createMockClient(),
+			createRequestClient: () => createMockClient(),
+		});
+		const list = await handler(
+			mcpRequest({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+			{},
+		);
+		const payload = await parseMcpResponse(list);
+		expect(JSON.stringify(payload)).toContain("get-workouts");
+		// Fork: the Worker ships no feedback recorder, so the tool is absent.
+		expect(JSON.stringify(payload)).not.toContain('"name":"feedback"');
+	});
+
 	it("passes only the Cloudflare colo, and no user identity or geography, to activity observation", async () => {
 		let observerOptions:
 			| {
@@ -581,16 +610,7 @@ describe("real stateless SDK transport", () => {
 					cloudflareColo?: string;
 			  }
 			| undefined;
-		const request = mcpRequest({
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: {
-				protocolVersion: "2025-11-25",
-				capabilities: {},
-				clientInfo: { name: "telemetry-context-test", version: "1" },
-			},
-		});
+		const request = mcpRequest(initializeMessage(1, "telemetry-context-test"));
 		Object.defineProperty(request, "cf", {
 			value: {
 				colo: "SFO",
@@ -628,7 +648,11 @@ describe("real stateless SDK transport", () => {
 				_signal: AbortSignal | undefined,
 				_deadline: number | undefined,
 				observer: CreateHevyMcpServerOptions["observer"],
-			) => await createHevyMcpServer({ createClient, observer }),
+			) =>
+				await createHevyMcpServer({
+					createClient,
+					observer,
+				}),
 		);
 		const handler = createWorkerHandler({
 			createValidationClient: () => createMockClient(),
@@ -636,16 +660,7 @@ describe("real stateless SDK transport", () => {
 			createObserver,
 			createServer,
 		});
-		const initialize = {
-			jsonrpc: "2.0",
-			id: 1,
-			method: "initialize",
-			params: {
-				protocolVersion: "2025-11-25",
-				capabilities: {},
-				clientInfo: { name: "fresh-observer-test", version: "1" },
-			},
-		};
+		const initialize = initializeMessage(1, "fresh-observer-test");
 
 		expect((await handler(mcpRequest(initialize), {})).status).toBe(200);
 		expect(
@@ -818,16 +833,7 @@ describe("real stateless SDK transport", () => {
 		});
 
 		const result = await handler(
-			mcpRequest({
-				jsonrpc: "2.0",
-				id: 3,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-11-25",
-					capabilities: {},
-					clientInfo: { name: "logging-test", version: "1" },
-				},
-			}),
+			mcpRequest(initializeMessage(3, "logging-test")),
 			{},
 		);
 		requestOnLog?.(event);
@@ -1040,6 +1046,126 @@ describe("real stateless SDK transport", () => {
 		stderrSpy.mockRestore();
 	});
 
+	it("logs client transport rejections as warnings without emitting errors", async () => {
+		const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const transport = new WebStandardStreamableHTTPServerTransport({
+			sessionIdGenerator: undefined,
+		});
+		const handler = createWorkerHandler({
+			createValidationClient: () => createMockClient(),
+			createRequestClient: () => createMockClient(),
+			createTransport: () => transport,
+		});
+
+		const result = await handler(
+			mcpRequest(
+				{
+					jsonrpc: "2.0",
+					id: 1,
+					method: "tools/list",
+					params: {},
+				},
+				{
+					...validHeaders,
+					"mcp-protocol-version": "2020-01-01",
+				},
+			),
+			{},
+		);
+
+		expect(result.status).toBe(400);
+		expect(stderrSpy).not.toHaveBeenCalled();
+		const warning = warnSpy.mock.calls.find(
+			(call) =>
+				(call[0] as { context?: string } | undefined)?.context ===
+				"streamable-http-transport",
+		)?.[0];
+		expect(warning).toMatchObject({
+			event: "worker.warning",
+			context: "streamable-http-transport",
+		});
+		expect((warning as { message?: string })?.message).toContain(
+			"Bad Request: Unsupported protocol version: 2020-01-01",
+		);
+		stderrSpy.mockRestore();
+		warnSpy.mockRestore();
+	});
+
+	it("sanitizes credential-shaped and query-bearing protocol versions in transport warnings", async () => {
+		const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		const transport = new WebStandardStreamableHTTPServerTransport({
+			sessionIdGenerator: undefined,
+		});
+		const handler = createWorkerHandler({
+			createValidationClient: () => createMockClient(),
+			createRequestClient: () => createMockClient(),
+			createTransport: () => transport,
+		});
+
+		const secret = "secret_key_123456";
+		const result = await handler(
+			mcpRequest(
+				{ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+				{
+					...validHeaders,
+					"mcp-protocol-version": `/mcp?session_id=${secret}`,
+				},
+			),
+			{},
+		);
+
+		expect(result.status).toBe(400);
+		expect(stderrSpy).not.toHaveBeenCalled();
+		const warning = warnSpy.mock.calls.find(
+			(call) =>
+				(call[0] as { context?: string } | undefined)?.context ===
+				"streamable-http-transport",
+		)?.[0];
+		expect(warning).toMatchObject({
+			event: "worker.warning",
+			context: "streamable-http-transport",
+		});
+		expect((warning as { message?: string })?.message).not.toContain(secret);
+		expect((warning as { message?: string })?.message).not.toContain(
+			"session_id",
+		);
+		expect((warning as { message?: string })?.message).toContain(
+			"Bad Request: Unsupported protocol version: [invalid-or-unsupported]",
+		);
+		stderrSpy.mockRestore();
+		warnSpy.mockRestore();
+	});
+
+	it("includes actionable messages in worker error logs for unexpected failures", async () => {
+		const stderrSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+		const handler = createWorkerHandler({
+			createValidationClient: () => createMockClient(),
+			createRequestClient: () => createMockClient(),
+			createServer: () => {
+				throw new TypeError("Cannot read properties of undefined");
+			},
+		});
+
+		const result = await handler(mcpRequest({}, validHeaders), {});
+		expect(result.status).toBe(500);
+		const errorLog = stderrSpy.mock.calls.find(
+			(call) =>
+				(call[0] as { context?: string } | undefined)?.context ===
+				"mcp-request-processing",
+		)?.[0];
+		expect(errorLog).toMatchObject({
+			event: "worker.error",
+			context: "mcp-request-processing",
+			category: "TypeError",
+		});
+		expect((errorLog as { message?: string })?.message).toBe(
+			"mcp-request-processing: TypeError: Cannot read properties of undefined",
+		);
+		stderrSpy.mockRestore();
+	});
+
 	it("uses Worker-safe default factories through the default export", async () => {
 		const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response(JSON.stringify({ id: "user" }), {
@@ -1049,16 +1175,7 @@ describe("real stateless SDK transport", () => {
 		);
 
 		const result = await worker.fetch(
-			mcpRequest({
-				jsonrpc: "2.0",
-				id: 7,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-11-25",
-					capabilities: {},
-					clientInfo: { name: "default-test", version: "1" },
-				},
-			}),
+			mcpRequest(initializeMessage(7, "default-test")),
 			{},
 		);
 
@@ -1094,16 +1211,7 @@ describe("real stateless SDK transport", () => {
 		});
 
 		const result = await worker.fetch(
-			mcpRequest({
-				jsonrpc: "2.0",
-				id: 11,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-11-25",
-					capabilities: {},
-					clientInfo: { name: "retry-test", version: "1" },
-				},
-			}),
+			mcpRequest(initializeMessage(11, "retry-test")),
 			{},
 		);
 
@@ -1124,16 +1232,7 @@ describe("real stateless SDK transport", () => {
 			.mockResolvedValue(new Response("Too Many Requests", { status: 429 }));
 
 		const result = await worker.fetch(
-			mcpRequest({
-				jsonrpc: "2.0",
-				id: 12,
-				method: "initialize",
-				params: {
-					protocolVersion: "2025-11-25",
-					capabilities: {},
-					clientInfo: { name: "no-429-retry-test", version: "1" },
-				},
-			}),
+			mcpRequest(initializeMessage(12, "no-429-retry-test")),
 			{},
 		);
 

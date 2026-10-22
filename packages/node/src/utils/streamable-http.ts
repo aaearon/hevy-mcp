@@ -39,6 +39,7 @@ function isObject<T>(value: T): value is T & object {
 }
 
 const MCP_PATH = "/mcp";
+const HEALTH_PATH = "/health";
 const MAX_BODY_BYTES = 1_048_576;
 const HTTP_BEARER_TOKEN = "HEVY_MCP_HTTP_BEARER_TOKEN";
 
@@ -292,10 +293,6 @@ interface ReadBodyHandlers {
 	onTimeout: () => void;
 }
 
-interface RejectBeforeBodyHandlers {
-	onError: () => void;
-}
-
 function readBody(
 	request: IncomingMessage,
 	timeoutMs: number,
@@ -454,6 +451,21 @@ function aggregateErrors<T>(errors: T[], message: string): T | AggregateError {
 	return new AggregateError(errors, message);
 }
 
+function drainRequestBody(request: IncomingMessage, timeoutMs: number): void {
+	const cleanup = () => {
+		clearTimeout(timer);
+		request.removeListener("end", cleanup);
+		request.removeListener("error", cleanup);
+		request.removeListener("close", cleanup);
+	};
+	const timer = setTimeout(() => request.destroy(), timeoutMs);
+	request.once("end", cleanup);
+	request.once("error", cleanup);
+	request.once("close", cleanup);
+	timer.unref?.();
+	request.resume();
+}
+
 function rejectBeforeBody(
 	request: IncomingMessage,
 	response: ServerResponse,
@@ -461,18 +473,7 @@ function rejectBeforeBody(
 	message: string,
 	timeoutMs: number,
 ): void {
-	const handlers: RejectBeforeBodyHandlers = { onError: () => {} };
-	const timer = setTimeout(() => request.destroy(), timeoutMs);
-	const cleanup = () => {
-		clearTimeout(timer);
-		request.removeListener("error", handlers.onError);
-		request.removeListener("close", cleanup);
-	};
-	handlers.onError = () => cleanup();
-	request.once("error", handlers.onError);
-	request.once("close", cleanup);
-	timer.unref?.();
-	request.resume();
+	drainRequestBody(request, timeoutMs);
 	writeJson(response, status, message);
 }
 
@@ -985,6 +986,33 @@ export async function startStreamableHttpServer(
 	): Promise<void> {
 		let releaseInitialization: (() => void) | undefined;
 		try {
+			if (request.url?.split("?", 1)[0] === HEALTH_PATH) {
+				drainRequestBody(request, config.bodyTimeoutMs);
+				if (response.headersSent || response.destroyed) return;
+				if (
+					!validateHostHeader(
+						request,
+						hostNamesFor(options),
+						listeningPort,
+						wildcard,
+					)
+				) {
+					writeJson(response, 403, "Invalid Host header");
+					return;
+				}
+				if (request.method !== "GET") {
+					response.setHeader("Allow", "GET");
+					writeJson(response, 405, "Method not allowed");
+					return;
+				}
+				response.statusCode = shuttingDown ? 503 : 200;
+				response.setHeader("Content-Type", "application/json");
+				response.setHeader("Cache-Control", "no-store");
+				response.end(
+					JSON.stringify({ status: shuttingDown ? "shutting_down" : "ok" }),
+				);
+				return;
+			}
 			const resolution = await resolveRequestSession(request, response);
 			if (!resolution) return;
 			const requiresInitialization =

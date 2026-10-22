@@ -103,6 +103,109 @@
   - The fork-only `http+oauth` Node transport keeps working: the OAuth
     authorization-server routes and bearer gate plug into upstream's reworked
     `startStreamableHttpServer` through the `HttpServerExtensions` hooks.
+## 6.2.1
+
+### Patch Changes
+
+- [#1249](https://github.com/chrisdoc/hevy-mcp/pull/1249) [`678c74f`](https://github.com/chrisdoc/hevy-mcp/commit/678c74fe90dec03716ee1d76b5b93566008e750d) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Upgrade workspace dependencies across Effect, zod, OpenTelemetry, Sentry, the MCP SDK, kubb codegen, Cloudflare tooling, and the vitest 5 test stack. The client regenerates unchanged in shape, with kubb 5.10 emitting tighter response unions and an indexed QUERY method entry; worker span fallbacks implement the new `spanContext` member required by current workers types.
+
+## 6.2.0
+
+### Minor Changes
+
+- [#1246](https://github.com/chrisdoc/hevy-mcp/pull/1246) [`03b8678`](https://github.com/chrisdoc/hevy-mcp/commit/03b86780bbe5cd08f046dcfe29e4f0d614bc40d2) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Advertise spec-recommended server metadata (title, description, website URL, and a scalable vector icon) during MCP discovery and initialization, and declare boolean `destructiveHint` on every read-only tool for platform compatibility checks.
+
+## 6.1.22
+
+### Patch Changes
+
+- [#1241](https://github.com/chrisdoc/hevy-mcp/pull/1241) [`cabfd9e`](https://github.com/chrisdoc/hevy-mcp/commit/cabfd9e75c89f3d905dfdd48589c1fd2195567e6) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Replace the duplicated npm README with a concise standalone package guide linking maintained documentation. Correct authentication, cache, and privacy guidance, and improve source-backed documentation navigation and ownership.
+
+- [`1f9f918`](https://github.com/chrisdoc/hevy-mcp/commit/1f9f9189883c4f00a752eb27c9f87ee5eefe368c) Thanks [@charliecreates[bot]](https://github.com/charliecreates%5Bbot%5D)! - Remove obsolete MCP SDK v1.29.0 compatibility note from README.
+
+- [#1240](https://github.com/chrisdoc/hevy-mcp/pull/1240) [`8d43dab`](https://github.com/chrisdoc/hevy-mcp/commit/8d43dab9f7a9467cfe1766d727466af7eac0a1e8) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Disable project telemetry by default for unbuilt Node source runs unless HEVY_MCP_TELEMETRY=1 is explicitly set. Preserve published-build opt-out behavior and label enabled source-run Sentry events as development, with SENTRY_ENVIRONMENT available as an override.
+
+- [#1237](https://github.com/chrisdoc/hevy-mcp/pull/1237) [`5b60d44`](https://github.com/chrisdoc/hevy-mcp/commit/5b60d449863ae84bbe282a72e48cd9e977c34799) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Remove `.agents/daemons/` daemon definitions: the Charlie agent that ran them is no longer active, so the daemon specs (docs-drift-maintainer, pr-check-repair, pr-merge-conflict-repair, pr-metadata, triage-sentry-issues) are dead configuration.
+
+- [#1239](https://github.com/chrisdoc/hevy-mcp/pull/1239) [`ca7a5d7`](https://github.com/chrisdoc/hevy-mcp/commit/ca7a5d71c0e41867df4656c86307ab457b23f500) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Consolidate native client request setup and test scaffolding while preserving public signatures, request controls, and test scenarios. Reduce test import overhead and CPU contention without narrowing validation lanes.
+
+## 6.1.21
+
+### Patch Changes
+
+- [#1235](https://github.com/chrisdoc/hevy-mcp/pull/1235) [`6698ef1`](https://github.com/chrisdoc/hevy-mcp/commit/6698ef1e06db8f0305991e2082614dc4d5ef71cd) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Update runtime workspace dependencies and patch vulnerable Nx transitive dependencies.
+
+## 6.1.20
+
+### Patch Changes
+
+- [#1229](https://github.com/chrisdoc/hevy-mcp/pull/1229) [`0cab669`](https://github.com/chrisdoc/hevy-mcp/commit/0cab669918477f2e4d1d82d7cfec89faa066be30) Thanks [@codebeetl](https://github.com/codebeetl)! - Return the saved routine or folder from create-routine, update-routine, and create-routine-folder by unwrapping Hevy's `routine`/`routine_folder` response envelopes, and declare structured output schemas for update-routine and create-routine-folder. The public client's `createRoutine()` also returns the unwrapped routine.
+
+## 6.1.19
+
+### Patch Changes
+
+- [#1223](https://github.com/chrisdoc/hevy-mcp/pull/1223) [`c8a1092`](https://github.com/chrisdoc/hevy-mcp/commit/c8a109237ee2df27dbedc19d02637ce253b4cf2d) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Refresh the generated Hevy client and runtime dependency resolutions for the updated toolchain.
+
+## 6.1.18
+
+### Patch Changes
+
+- [#1218](https://github.com/chrisdoc/hevy-mcp/pull/1218) [`4d4f39e`](https://github.com/chrisdoc/hevy-mcp/commit/4d4f39e28d4144bbb589d663c78b33e4efe2becb) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Preserve dedicated user message for ToolInputValidationError in resolveErrorPolicy.
+
+## 6.1.17
+
+### Patch Changes
+
+- [#1216](https://github.com/chrisdoc/hevy-mcp/pull/1216) [`4c454dd`](https://github.com/chrisdoc/hevy-mcp/commit/4c454ddbf18af52fd65ea75b931deb6895d7e4f2) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Improve worker error logging and classify transport client rejections as warnings to prevent false-positive alerts in Cloudflare Real-Time Issue Detection while preserving safe diagnostic sanitization.
+
+## 6.1.16
+
+### Patch Changes
+
+- [#1211](https://github.com/chrisdoc/hevy-mcp/pull/1211) [`06dd910`](https://github.com/chrisdoc/hevy-mcp/commit/06dd910bb53fb817289e00fb21cedcd081e86e58) Thanks [@HugeFanOfElon](https://github.com/HugeFanOfElon)! - Fix broken API settings link in README
+
+## 6.1.15
+
+### Patch Changes
+
+- [#1184](https://github.com/chrisdoc/hevy-mcp/pull/1184) [`47d9248`](https://github.com/chrisdoc/hevy-mcp/commit/47d92489250c7d3f4fabd151cc0b248305611063) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Move shared mutation schemas into Operations, remove the CLI's dependency on MCP Core, and preserve stringified exercise-array compatibility at the CLI input boundary.
+
+- [#1204](https://github.com/chrisdoc/hevy-mcp/pull/1204) [`d4013a1`](https://github.com/chrisdoc/hevy-mcp/commit/d4013a10072129a4c489e3a21f0b57103cc63687) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Add public liveness endpoints to the Node HTTP server and Cloudflare Worker.
+
+- [#1203](https://github.com/chrisdoc/hevy-mcp/pull/1203) [`da0dfd6`](https://github.com/chrisdoc/hevy-mcp/commit/da0dfd6257ffc1350d9bcc184b4fc168243beabd) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Bridge Effect spans into Node OpenTelemetry traces and preserve active parent spans through tool, resource, and server-construction execution.
+
+- [#1191](https://github.com/chrisdoc/hevy-mcp/pull/1191) [`61dd96c`](https://github.com/chrisdoc/hevy-mcp/commit/61dd96cd24c06c889ae1fea86c1264e0b557b970) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Organize Core safe diagnostics, error mapping, logging, and observation contracts under a dedicated responsibility folder.
+
+- [#1201](https://github.com/chrisdoc/hevy-mcp/pull/1201) [`959f90d`](https://github.com/chrisdoc/hevy-mcp/commit/959f90d68c7957cd559df971b612b80f8a58c417) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Group MCP registration, schema conversion, and response assembly under the Core protocol responsibility.
+
+- [#1200](https://github.com/chrisdoc/hevy-mcp/pull/1200) [`efb5712`](https://github.com/chrisdoc/hevy-mcp/commit/efb5712fd2e8b57ab659576075aab1ad257c0ce4) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Group Core request execution and Effect service composition under the runtime responsibility.
+
+- [#1193](https://github.com/chrisdoc/hevy-mcp/pull/1193) [`4cd00b1`](https://github.com/chrisdoc/hevy-mcp/commit/4cd00b17724792de7d80040d6dbc7f5c8c0fdbf2) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Expose execution options through the client type barrel for the CLI.
+
+- [#1158](https://github.com/chrisdoc/hevy-mcp/pull/1158) [`15b6fa6`](https://github.com/chrisdoc/hevy-mcp/commit/15b6fa678a6b44ee132483325eee82b47e6f8df1) Thanks [@charliecreates](https://github.com/apps/charliecreates)! - Add the privacy-safe `feedback` MCP tool and detached Node and Worker telemetry recorders.
+
+## 6.1.14
+
+### Patch Changes
+
+- [#1168](https://github.com/chrisdoc/hevy-mcp/pull/1168) [`6e61a84`](https://github.com/chrisdoc/hevy-mcp/commit/6e61a8439bf21bd74e74ee848c8ae5fdac78a52f) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Expose string enum values for workout set RPE in tool input schemas to support Google Gemini and Vertex AI FunctionDeclaration validation, casting back to numeric values for downstream API calls.
+
+- [#1165](https://github.com/chrisdoc/hevy-mcp/pull/1165) [`f35465e`](https://github.com/chrisdoc/hevy-mcp/commit/f35465e55023b9d77af993d674e5e218a3424785) Thanks [@dependabot](https://github.com/apps/dependabot)! - Regenerate the Hevy client with the updated Kubb toolchain.
+
+- [#1168](https://github.com/chrisdoc/hevy-mcp/pull/1168) [`6e61a84`](https://github.com/chrisdoc/hevy-mcp/commit/6e61a8439bf21bd74e74ee848c8ae5fdac78a52f) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Expose the client's maxGetRetries option through createNodeMcpServer. Embedders can set it to zero to disable automatic request retries, including PUT retries, and reconcile uncertain writes explicitly. Omitting the option preserves the existing client policy.
+
+## 6.1.13
+
+### Patch Changes
+
+- [#1162](https://github.com/chrisdoc/hevy-mcp/pull/1162) [`01a1a5e`](https://github.com/chrisdoc/hevy-mcp/commit/01a1a5e9d253dc4c0192929248a8dd92162dd176) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Accept legacy flat camelCase create-routine calls from connected clients while advertising the canonical nested schema. Present identity-less routine creation responses as confirmed acknowledgements without an empty routine, and advise discovery before retrying.
+
+## 6.1.12
+
+### Patch Changes
+
+- [#1155](https://github.com/chrisdoc/hevy-mcp/pull/1155) [`bc2fb86`](https://github.com/chrisdoc/hevy-mcp/commit/bc2fb86ecc1b2a1b24df9a570c494ef09f006fc2) Thanks [@chrisdoc](https://github.com/chrisdoc)! - Manual dependency upgrade (Dependabot is blocked on pnpm 12): zod 4.5.4 to 4.6.5, effect 4.0.0-rc.112 to 4.0.0-rc.115, wrangler 4.128.0 to 4.131.2, plus dev-dependency updates. Adapt Worker tracing doubles to the new @cloudflare/workers-types Span API.
 
 ## 6.1.11
 

@@ -102,8 +102,8 @@ The six workspaces are:
   Hevy command-line client.
 
 The dependency direction is `hevy-client -> operations -> core`, with `core`
-also depending directly on `hevy-client`; Node, Worker, and CLI are adapters
-that consume the runtime-neutral packages. Adapters do not import one another.
+also depending directly on `hevy-client`; Node and Worker are adapters over
+`core`, and the CLI consumes only `hevy-client` and `operations`. Adapters do not import one another.
 Keep Node built-ins and Cloudflare bindings out of `hevy-client`, `operations`,
 and `core`. Keep Node-only lifecycle, transport, and stdio parse hardening
 in `packages/node`; keep Worker bindings and Worker OAuth in
@@ -126,7 +126,7 @@ Review the complete generated diff. Consumers use the curated
 `@hevy-mcp/hevy-client`, `@hevy-mcp/hevy-client/types`, and
 `@hevy-mcp/hevy-client/schemas` exports; generated API functions and `.kubb`
 internals are private. Upstream schema corrections belong in
-`scripts/openapi-spec.js` so regeneration remains reproducible.
+`scripts/codegen/openapi-spec.js` so regeneration remains reproducible.
 
 ## MCP and type-safety conventions
 
@@ -139,7 +139,7 @@ pattern when adding or changing one:
    `InferToolParams<typeof schema>`; keep the schema as the single source of
    truth for validation and types.
 3. Define the response contract and output schema for read tools in
-   `utils/response-contracts.ts`.
+   `protocol/response-contracts.ts`.
 4. Register the definition through `tools/register.ts`, use the existing
    `ToolRuntime` error/observation path, and add a co-located test.
 5. Measure token cost when tool descriptions or schemas materially change:
@@ -174,7 +174,7 @@ pnpm run check:changeset
 ```
 
 A change under `packages/*`, a runtime-visible behavior change, a workspace
-dependency change, or `cloudflare.config.ts` requires a non-empty bump
+dependency change, or `packages/worker/cloudflare.config.ts` requires a non-empty bump
 Changeset. Name the changed package and every transitive shipped consumer from
 `repository/topology.json`; do not couple unrelated packages. The current
 cascade is:
@@ -185,10 +185,10 @@ cascade is:
 - `@hevy-mcp/operations` -> `@hevy-mcp/operations`,
   `@hevy-mcp/core`, `hevy-mcp`, `@hevy-mcp/worker`,
   `@chrisdoc/hevy-cli`.
-- `@hevy-mcp/core` -> `@hevy-mcp/core`, `hevy-mcp`,
-  `@hevy-mcp/worker`, `@chrisdoc/hevy-cli`.
+- `@hevy-mcp/core` -> `@hevy-mcp/core`, `hevy-mcp`, `@hevy-mcp/worker`
+  (the CLI no longer depends on core).
 - Node-only, Worker-only, and CLI-only changes bump only their respective
-  package; `cloudflare.config.ts` is a Worker change.
+  package; `packages/worker/cloudflare.config.ts` is a Worker change.
 
 **Fork deviation.** `@chrisdoc/hevy-cli` is listed in `.changeset/config.json`
 `ignore` because this fork cannot publish to the `@chrisdoc` scope. Ignored
@@ -296,93 +296,81 @@ Rules for maintainers and agents:
 - **Do not add any new outbound host.** That includes update checks, license
   pings, feature-flag fetches, and CDN loads. If a change genuinely needs one,
   it is a product decision, not an implementation detail — raise it first.
-- **`packages/core` observer seams are deliberately KEPT but inert.** There is
-  no default implementation, and `tool-runtime.ts` selects the plain handler
-  factory when no observer is passed. They exist purely so upstream merges stay
-  cheap. Keep them inert; do not wire a default observer.
-  The seam rule stops at code with a plausible future use. It does **not**
-  extend to upstream's user-pseudonym constants in
-  `packages/core/src/utils/telemetry-contract.ts`: their only purpose was to
-  build a Sentry user id, nothing in this fork derives one, and
-  `tests/unit/no-runtime-telemetry.test.ts` scans for them by name. They are
-  removed, along with the Worker observer's `userHash` option and its
-  `user.hash` span attribute. Only `TELEMETRY_ARGUMENT_KEYS` survives in that
-  file, because `tool-runtime.ts` uses it as an argument allowlist.
+- **`packages/core` observer and feedback seams are deliberately KEPT but
+  inert.** There is no default observer, and `tool-runtime.ts` selects the plain
+  handler factory when none is passed. The `feedback` tool is registered only
+  when an embedder passes its own `feedbackRecorder` (see `tools/register.ts`);
+  neither the Node runtime nor the Worker supplies one, so it is not exposed.
+  The seams exist purely so upstream merges stay cheap; do not wire defaults.
+  The seam rule stops at code with a plausible future use. Upstream's
+  user-pseudonym constants (`USER_HASH_*`, `SAFE_USER_HASH_PATTERN`) in
+  `packages/core/src/diagnostics/telemetry-contract.ts` only built a Sentry user
+  id, so they are removed; only `TELEMETRY_ARGUMENT_KEYS` survives there, as
+  `tool-runtime.ts`'s argument allowlist.
 - **Every upstream merge must drop the following surfaces.** Upstream keeps
-  regrowing them; as of `hevy-mcp@6.1.11` that means:
-  - `packages/node/src/utils/startup-errors.ts`: a new upstream file that
-    arrives WITHOUT a merge conflict and imports `flushTelemetry` from
-    `./telemetry.js`, re-wiring telemetry into the Node startup path. This is
-    the vector to watch for: a clean merge that evades both the conflict list
-    and the guard test below. Keep the file (its `NodeCliArgumentError` /
-    `InvalidHevyApiKeyError` classes are a genuine improvement), but drop the
-    `flushTelemetry` import and default its `flush` option to an inert no-op;
-  - the `@sentry/*` / `@opentelemetry/*` hunks and any reintroduced
-    `scheduleUpdateCheck` / `registry.npmjs.org` code, including
-    `packages/node/src/utils/{telemetry,metrics,failure-reporter,
-sdk-observability,execution-telemetry,tool-observer,hevy-client-observability,
-version-check,user-hash}.ts` (with co-located tests), the Sentry rollup plugin
-    in `packages/node/tsdown.config.ts`, and `docs/telemetry-dashboards.md` /
-    `docs/telemetry-data-dictionary.md`;
-  - the `otel-cicd-action` job in `.github/workflows/build-and-test.yml`,
-    which exports CI traces to `otel.chrisdoc.dev`;
-  - the `CLOUDFLARE_OTEL_TRACES_DESTINATIONS` /
-    `CLOUDFLARE_OTEL_LOGS_DESTINATIONS` observability block in
-    `cloudflare.config.ts`;
-  - the whole user-pseudonym path: `createNodeUserHash`
-    (`packages/node/src/utils/user-hash.ts`), `createWorkerUserHash`
-    (`packages/worker/src/worker-telemetry.ts`), the `USER_HASH_*` /
-    `SAFE_USER_HASH_PATTERN` constants in
-    `packages/core/src/utils/telemetry-contract.ts` and their re-exports from
-    `packages/core/src/index.ts`, and the Worker observer's `userHash` option,
-    `safeUserHash` validator and `user.hash` span attribute;
-  - city/region geolocation span tagging: `getCloudflareGeography` /
-    `sanitizeCloudflareGeographyValue` in `worker-telemetry.ts` and the
-    `geo.locality.name` / `geo.locality.region` / `geo.country.code`
-    attributes in `worker-observer.ts`. Keep `getCloudflareColo` and the
-    `cloudflare.colo` span tag — that's infrastructure routing info, not user
-    location;
-  - the `semver` runtime dependency in `packages/node/package.json` (backs
-    the npm registry update check);
-  - the `HEVY_MCP_TELEMETRY`, `HEVY_MCP_TELEMETRY_DIAGNOSTICS`,
-    `SENTRY_DSN`, `SENTRY_RELEASE`, and `XDG_CACHE_HOME` rows in the README
-    config tables;
-  - the `@sentry/cli` entry in the root `package.json` `allowScripts` map;
-  - upstream's HMAC-pseudonym / IP-geolocation collection text in
-    `docs/privacy-policy.md`.
+  regrowing them, often in files that merge WITHOUT a conflict; as of
+  `hevy-mcp@6.2.1` that means:
+  - Node: `packages/node/src/utils/{telemetry,telemetry-config,metrics,
+    failure-reporter,sdk-observability,execution-telemetry,tool-observer,
+    hevy-client-observability,version-check,user-hash,feedback}.ts` with their
+    tests (incl. `effect-tracing.test.ts`); any `flushTelemetry` /
+    `createNodeFeedbackRecorder` / tracer wiring in `runtime.ts`,
+    `startup-errors.ts` (keep its error classes, `flush` defaults to a no-op)
+    and `streamable-http.ts` (`recordHttp*` counters); the Sentry rollup
+    plugin in `packages/node/tsdown.config.ts`; `@sentry/*`,
+    `@opentelemetry/*`, `@effect/opentelemetry` and `semver` (npm update
+    check) in `packages/node/package.json`, and `@sentry/rollup-plugin` /
+    `@opentelemetry/api` in the root `package.json`.
+  - Worker: `worker-feedback.ts` (POSTs agent feedback to
+    `otel.chrisdoc.dev`) and the `feedbackOnly` cached-validation bypass in
+    `worker.ts`; `OTEL_COLLECTOR_TOKEN` / `HEVY_MCP_TELEMETRY` in `WorkerEnv`
+    and `.dev.vars.example`; `createWorkerUserHash`, `getCloudflareGeography`
+    and the `user.hash` / `geo.*` span attributes (keep `getCloudflareColo`
+    and `cloudflare.colo`, which is routing info, not user location); the
+    `observability` block with `CLOUDFLARE_OTEL_*_DESTINATIONS` in
+    `packages/worker/cloudflare.config.ts`.
+  - Core: the `USER_HASH_*` re-exports in `packages/core/src/index.ts`, and
+    `SERVER_ICONS` in `server-metadata.ts` pointing at upstream's
+    `hevy-mcp.dev` (every MCP client fetches the icon on discovery).
+  - CI: the `otel-cicd-action` job in `build-and-test.yml`, the "Configure
+    Worker feedback collector secret" step and `CLOUDFLARE_OTEL_*` env in
+    `release.yml`, and blank `SENTRY_DSN` / `OTEL_COLLECTOR_TOKEN` env rows.
+  - Docs: telemetry rows (`HEVY_MCP_TELEMETRY*`, `SENTRY_*`,
+    `XDG_CACHE_HOME`) and the `feedback` tool row in README tables;
+    `docs/telemetry-dashboards.md`, `docs/telemetry-data-dictionary.md`,
+    `docs/cloudflare-worker-version-attribution.md`; `docs/observability.md`
+    stays as the fork's no-telemetry statement; HMAC-pseudonym /
+    geolocation text in `docs/privacy-policy.md`.
 - `repository/topology.json` carries the workspace boundary rules that
   `scripts/check-package-boundaries.mjs` enforces. Every workspace must list
   `@sentry/` and `@opentelemetry/` as forbidden imports.
 - `HEVY_MCP_DEBUG=1` is the only sanctioned diagnostic. It writes to stderr and
   must never leave the machine.
-- **`entire` is deliberately excluded.** Upstream ships `entire` (a
-  proprietary tool by entireio) wired into lefthook hooks; it uploads
-  developer prompts and session transcripts to its own server via a
-  `pre-push` checkpoint step. This fork removes it under the same "no new
-  outbound hosts" policy. The removal covers `mise.toml`, `mise.lock`,
-  `lefthook.yml`, `.entire/`, `.pi/extensions/entire/`,
-  `.agents/skills/using-entire/`, and `.lefthook/pre-push/entire.sh`. Every
-  upstream merge must drop it again.
+- **`entire` and `1password` are deliberately excluded from `mise.toml`.**
+  `entire` (proprietary, by entireio) uploads developer prompts and session
+  transcripts from a lefthook `pre-push` step; `1password` is unused here.
+  Drop them from `mise.toml`, `mise.lock`, `lefthook.yml`, `.entire/`
+  (including the `entire-graph` block upstream adds to `AGENTS.md`),
+  `.pi/extensions/entire/`, `.agents/skills/using-entire/`, and
+  `.lefthook/pre-push/entire.sh` on every merge.
 
 ### The guard test is a tripwire, not a proof
 
 `tests/unit/no-runtime-telemetry.test.ts` scans every `packages/*/src` tree and
-every `packages/*/package.json`, and asserts that `registry.npmjs.org`,
-`scheduleUpdateCheck`, and `checkForUpdate` appear nowhere. It still has real
-blind spots you must not mistake for coverage:
+manifest for telemetry SDK imports (static, side-effect, dynamic, `require`),
+Sentry/OTLP endpoints, telemetry env vars, user-hash names, feedback recorders,
+and update checks. It also allowlists every URL host named in shipped sources
+(extend `ALLOWED_URL_HOSTS` only with a written reason), scans CI workflows and
+the Worker deploy config for OTLP/Sentry, and rejects `entire` in mise or
+lefthook. Remaining blind spots:
 
-- Its import regex `/from\s+["'](@sentry\/|@opentelemetry\/)/` **misses** bare
-  side-effect imports (`import "@sentry/node"`), dynamic `import()`, `require()`,
-  and `createRequire()` — and this repo already uses `createRequire()` for
-  `better-sqlite3`, so that pattern is live here.
-- It does **not** scan `scripts/` or `repository/`, which is deliberate: the
-  package-boundary rules there name `@sentry/` and `@opentelemetry/` as
-  forbidden strings, so including them would be a permanent false positive.
+- It does **not** scan `scripts/` or `repository/`: the boundary rules there
+  name `@sentry/` and `@opentelemetry/` as forbidden strings by design.
 - It matches source text only. A telemetry SDK pulled in transitively, or a host
   assembled from string fragments at runtime, is invisible to it.
 
 Treat a green run as "no obvious regression", and still read upstream merge
-diffs by hand.
+diffs by hand. When it flags something, delete the surface and widen the test.
 
 ## HTTP+OAuth Transport (fork-specific)
 

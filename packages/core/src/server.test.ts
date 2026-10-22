@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { Effect, Layer } from "effect";
+import { Effect, Layer, Tracer } from "effect";
+import { Client, InMemoryTransport } from "@modelcontextprotocol/client";
+import type { Implementation } from "@modelcontextprotocol/client";
 import { createHevyMcpServer } from "./server.js";
 import { createMockHevyClient } from "../test-fixtures/mock-hevy.js";
 import {
@@ -7,12 +9,35 @@ import {
 	HevyClientService,
 	HevyOperationsService,
 	ToolObserverService,
-} from "./effect-services.js";
+} from "./runtime/effect-services.js";
 import { createOperations } from "@hevy-mcp/operations";
-import type { CoreServiceLayer } from "./effect-layer.js";
+import type { CoreServiceLayer } from "./runtime/effect-layer.js";
+import {
+	SERVER_DESCRIPTION,
+	SERVER_ICONS,
+	SERVER_TITLE,
+	SERVER_WEBSITE_URL,
+} from "./server-metadata.js";
 
 describe("createHevyMcpServer", () => {
 	const servers: Array<{ close(): Promise<void> }> = [];
+
+	async function connectHandshake() {
+		const server = await createHevyMcpServer({
+			createClient: () => createMockHevyClient(),
+		});
+		const client = new Client({
+			name: "metadata-test-client",
+			version: "1.0.0",
+		});
+		const [clientTransport, serverTransport] =
+			InMemoryTransport.createLinkedPair();
+		await Promise.all([
+			server.connect(serverTransport),
+			client.connect(clientTransport),
+		]);
+		return { client, server };
+	}
 
 	afterEach(async () => {
 		await Promise.all(
@@ -20,6 +45,55 @@ describe("createHevyMcpServer", () => {
 				await server.close();
 			}),
 		);
+	});
+
+	it("advertises spec-recommended implementation metadata", async () => {
+		const { client, server } = await connectHandshake();
+		servers.push(server);
+
+		try {
+			const clientInfo: Implementation | undefined = client.getServerVersion();
+			if (!clientInfo) throw new Error("client did not record server info");
+			expect(clientInfo.name).toBe("hevy-mcp");
+			expect(clientInfo.title).toBe(SERVER_TITLE);
+			expect(clientInfo.description).toBe(SERVER_DESCRIPTION);
+			expect(clientInfo.websiteUrl).toBe(SERVER_WEBSITE_URL);
+			expect(clientInfo.icons).toEqual(
+				SERVER_ICONS.map((icon) => ({ ...icon })),
+			);
+			expect(clientInfo.version).toMatch(/\S/);
+		} finally {
+			await Promise.all([client.close(), server.close()]);
+		}
+	});
+
+	it("records server construction with the supplied Effect tracer", async () => {
+		const spans: Tracer.NativeSpan[] = [];
+		const effectTracer = Tracer.make({
+			span: (options) => {
+				const span = new Tracer.NativeSpan(options);
+				spans.push(span);
+				return span;
+			},
+		});
+		const parentSpan = Tracer.externalSpan({
+			traceId: "0123456789abcdef0123456789abcdef",
+			spanId: "0123456789abcdef",
+		});
+		const server = await createHevyMcpServer({
+			createClient: () => createMockHevyClient(),
+			effectTracer,
+			effectParentSpan: () => parentSpan,
+		});
+		servers.push(server);
+
+		const constructionSpan = spans.find(
+			(span) => span.name === "core.createHevyMcpServer",
+		);
+		expect(constructionSpan?.parent).toMatchObject({
+			_tag: "Some",
+			value: { spanId: parentSpan.spanId },
+		});
 	});
 
 	it("keeps the Promise-compatible close façade idempotent", async () => {

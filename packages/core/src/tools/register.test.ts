@@ -2,7 +2,7 @@ import { InMemoryTransport, McpServer } from "@modelcontextprotocol/server";
 import { Client } from "@modelcontextprotocol/client";
 import { Effect } from "effect";
 import type { Routine } from "@hevy-mcp/hevy-client/types";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { createToolRuntime } from "./tool-runtime.js";
 import {
@@ -12,7 +12,8 @@ import {
 } from "./register.js";
 import type { ExerciseTemplateCatalog } from "../utils/exercise-template-catalog.js";
 import { createMockHevyClient } from "../../test-fixtures/mock-hevy.js";
-import type { ToolObserver } from "../observation.js";
+import type { ToolObserver } from "../diagnostics/observation.js";
+import { createUnavailableAgentFeedbackRecorder } from "../feedback-recorder.js";
 
 type SchemaObject = {
 	readonly type?: string | readonly string[];
@@ -500,6 +501,82 @@ describe("registerHevyTools", () => {
 		}
 	});
 
+	// Fork: feedback only reaches an embedder-supplied recorder. With no
+	// recorder there is nowhere for it to go, so the tool is not advertised.
+	it("does not register feedback without a recorder", async () => {
+		const bareServer = new McpServer({
+			name: "feedback-absent-server",
+			version: "1.0.0",
+		});
+		registerHevyTools(
+			bareServer,
+			createToolRuntime({
+				client: null,
+				catalog: {
+					effect: () => Effect.succeed([]),
+					get: () => Promise.resolve([]),
+					reset: () => Effect.void,
+					close: () => Effect.void,
+				},
+			}),
+		);
+		const pair = await connectToolProtocol(bareServer, "feedback-absent");
+		try {
+			const { tools } = await pair.protocolClient.listTools();
+			expect(tools.map(({ name }) => name)).not.toContain("feedback");
+		} finally {
+			await Promise.all([pair.protocolClient.close(), pair.server.close()]);
+		}
+	});
+
+	it("registers feedback through the unobserved path", async () => {
+		const rawMessage = "feedback-raw-message-sentinel";
+		const start = vi.fn(() => ({
+			run: <T>(operation: () => Promise<T>) => operation(),
+			finish: vi.fn(),
+		}));
+		const observer: ToolObserver = { start };
+		const feedbackServer = new McpServer({
+			name: "feedback-unobserved-server",
+			version: "1.0.0",
+		});
+		registerHevyTools(
+			feedbackServer,
+			createToolRuntime({
+				client: null,
+				catalog: {
+					effect: () => Effect.succeed([]),
+					get: () => Promise.resolve([]),
+					reset: () => Effect.void,
+					close: () => Effect.void,
+				},
+				observer,
+				feedbackRecorder: createUnavailableAgentFeedbackRecorder(),
+			}),
+		);
+		const pair = await connectToolProtocol(
+			feedbackServer,
+			"feedback-unobserved",
+		);
+
+		try {
+			const result = await pair.protocolClient.callTool({
+				name: "feedback",
+				arguments: { message: rawMessage },
+			});
+			expect(result).toMatchObject({
+				structuredContent: {
+					accepted: false,
+					reason: "telemetry_unavailable",
+				},
+			});
+			expect(JSON.stringify(result)).not.toContain(rawMessage);
+			expect(start).not.toHaveBeenCalled();
+		} finally {
+			await Promise.all([pair.protocolClient.close(), pair.server.close()]);
+		}
+	});
+
 	it("shares memoized tool schemas across independently built servers", async () => {
 		preloadHevyToolSchemas();
 		preloadHevyToolSchemas();
@@ -571,6 +648,111 @@ describe("registerHevyTools", () => {
 			}),
 		);
 	});
+	it("returns saved folders and routines from enveloped write responses", async () => {
+		const mockClient = createMockHevyClient();
+		mockClient.createRoutineFolder
+			.mockResolvedValueOnce({ routine_folder: { id: 7, title: "Strength" } })
+			.mockResolvedValueOnce({});
+		mockClient.updateRoutine
+			.mockResolvedValueOnce({
+				routine: { id: "routine-1", title: "Push", exercises: [] },
+			})
+			.mockResolvedValueOnce({});
+		const writeServer = new McpServer({
+			name: "write-envelope-server",
+			version: "1.0.0",
+		});
+		registerHevyTools(
+			writeServer,
+			createToolRuntime({
+				client: mockClient,
+				catalog: {
+					effect: () => Effect.succeed([]),
+					get: () => Promise.resolve([]),
+					reset: () => Effect.void,
+					close: () => Effect.void,
+				},
+			}),
+		);
+		const { protocolClient } = await connectToolProtocol(
+			writeServer,
+			"write-envelopes",
+		);
+		const createFolder = () =>
+			protocolClient.callTool({
+				name: "create-routine-folder",
+				arguments: { routine_folder: { title: "Strength" } },
+			});
+		const updateRoutine = () =>
+			protocolClient.callTool({
+				name: "update-routine",
+				arguments: {
+					routine_id: "routine-1",
+					routine: {
+						title: "Push",
+						exercises: [
+							{ exercise_template_id: "bench", sets: [{ type: "normal" }] },
+						],
+					},
+				},
+			});
+
+		try {
+			const { tools } = await protocolClient.listTools();
+			const outputSchemaOf = (name: string) =>
+				tools.find((tool) => tool.name === name)?.outputSchema;
+			expect(outputSchemaOf("create-routine-folder")).toMatchObject({
+				properties: { created: { const: true } },
+			});
+			expect(outputSchemaOf("update-routine")).toMatchObject({
+				properties: { updated: { const: true } },
+			});
+
+			const createdFolder = await createFolder();
+			expect(createdFolder).not.toMatchObject({ isError: true });
+			expect(createdFolder.structuredContent).toEqual({
+				created: true,
+				commit_state: "confirmed",
+				routine_folder: { id: 7, title: "Strength" },
+				folder_id: 7,
+			});
+
+			const unconfirmedFolder = await createFolder();
+			expect(unconfirmedFolder).not.toMatchObject({ isError: true });
+			expect(unconfirmedFolder.structuredContent).toEqual({
+				created: true,
+				commit_state: "confirmed",
+				routine_folder: null,
+				folder_id: null,
+			});
+			expect(JSON.stringify(unconfirmedFolder.content)).toContain(
+				"before retrying",
+			);
+
+			const updated = await updateRoutine();
+			expect(updated).not.toMatchObject({ isError: true });
+			expect(updated.structuredContent).toEqual({
+				updated: true,
+				commit_state: "confirmed",
+				routine: { id: "routine-1", title: "Push", exercises: [] },
+				routine_id: "routine-1",
+				uses_rep_ranges: false,
+			});
+
+			const updatedWithoutBody = await updateRoutine();
+			expect(updatedWithoutBody).not.toMatchObject({ isError: true });
+			expect(updatedWithoutBody.structuredContent).toEqual({
+				updated: true,
+				commit_state: "confirmed",
+				routine: null,
+				routine_id: "routine-1",
+				uses_rep_ranges: false,
+			});
+		} finally {
+			await Promise.all([protocolClient.close(), writeServer.close()]);
+		}
+	});
+
 	it("keeps the serialized create-routine contract aligned with dispatch", async () => {
 		const mockClient = createMockHevyClient();
 		const productionServer = new McpServer({
@@ -619,7 +801,9 @@ describe("registerHevyTools", () => {
 			});
 
 			const payload = createRoutinePayload;
-			mockClient.createRoutine.mockResolvedValue(createdRoutineResponse);
+			mockClient.createRoutine.mockResolvedValue({
+				routine: createdRoutineResponse,
+			});
 
 			const result = await protocolClient.callTool({
 				name: "create-routine",
@@ -637,6 +821,104 @@ describe("registerHevyTools", () => {
 			expect(mockClient.createRoutine.mock.calls[0]?.[0]).toEqual(
 				expectedCreateRoutineRequest,
 			);
+
+			const legacyResult = await protocolClient.callTool({
+				name: "create-routine",
+				arguments: {
+					title: "Full Body A",
+					folderId: 123,
+					notes: "First four exercises are the minimum viable workout",
+					exercises: [
+						{
+							exerciseTemplateId: "30E293E3",
+							supersetId: null,
+							restSeconds: 120,
+							notes: "Controlled active ROM",
+							sets: [{ type: "normal", repRange: { start: 6, end: 10 } }],
+						},
+					],
+				},
+			});
+			expect(legacyResult).not.toMatchObject({ isError: true });
+			expect(mockClient.createRoutine.mock.calls[1]?.[0]).toEqual(
+				expectedCreateRoutineRequest,
+			);
+			const connectedResult = await protocolClient.callTool({
+				name: "create-routine",
+				arguments: {
+					title: "Tuesday — Full Body Hypertrophy",
+					notes:
+						"Increase weight after all working sets reach the top of the range.",
+					exercises: [
+						{
+							exerciseTemplateId: "234897AB",
+							supersetId: 1,
+							restSeconds: 60,
+							notes: "8–15 reps",
+							sets: [
+								{
+									reps: 15,
+									weight: null,
+									distance: null,
+									duration: null,
+									customMetric: null,
+								},
+								{ reps: 15, weightKg: 0 },
+							],
+						},
+						{
+							exerciseTemplateId: "B5EFBF9C",
+							supersetId: 1,
+							restSeconds: 90,
+							notes: "8–15 reps",
+							sets: [{ reps: 15 }, { reps: 15 }],
+						},
+					],
+				},
+			});
+			expect(connectedResult).not.toMatchObject({ isError: true });
+			expect(mockClient.createRoutine.mock.calls[2]?.[0]).toMatchObject({
+				routine: {
+					title: "Tuesday — Full Body Hypertrophy",
+					notes:
+						"Increase weight after all working sets reach the top of the range.",
+					exercises: [
+						{
+							exercise_template_id: "234897AB",
+							superset_id: 1,
+							rest_seconds: 60,
+							notes: "8–15 reps",
+							sets: [
+								{ type: "normal", reps: 15 },
+								{ type: "normal", reps: 15 },
+							],
+						},
+						{
+							exercise_template_id: "B5EFBF9C",
+							superset_id: 1,
+							rest_seconds: 90,
+							notes: "8–15 reps",
+							sets: [
+								{ type: "normal", reps: 15 },
+								{ type: "normal", reps: 15 },
+							],
+						},
+					],
+				},
+			});
+			const firstConnectedSet =
+				mockClient.createRoutine.mock.calls[2]?.[0].routine?.exercises?.[0]
+					?.sets?.[0];
+			expect(firstConnectedSet).toMatchObject({
+				weight_kg: null,
+				distance_meters: null,
+				duration_seconds: null,
+				custom_metric: null,
+			});
+			expect(
+				mockClient.createRoutine.mock.calls[2]?.[0].routine?.exercises?.[0]
+					?.sets?.[1]?.weight_kg,
+			).toBe(0);
 
 			mockClient.createRoutine.mockResolvedValue(undefined);
 			const emptyResult = await protocolClient.callTool({
@@ -674,7 +956,7 @@ describe("registerHevyTools", () => {
 			expect(invalidText).not.toContain("SECRET-TITLE-SENTINEL");
 			expect(invalidText).not.toContain("SECRET-NOTES-SENTINEL");
 			expect(invalidText).not.toContain("SECRET-TEMPLATE-SENTINEL");
-			expect(mockClient.createRoutine).toHaveBeenCalledTimes(2);
+			expect(mockClient.createRoutine).toHaveBeenCalledTimes(4);
 
 			const missingExercisesResult = await protocolClient.callTool({
 				name: "create-routine",
@@ -683,14 +965,14 @@ describe("registerHevyTools", () => {
 			const missingExercisesText = JSON.stringify(missingExercisesResult);
 			expect(missingExercisesResult).toMatchObject({ isError: true });
 			expect(missingExercisesText).toContain("routine.exercises");
-			expect(mockClient.createRoutine).toHaveBeenCalledTimes(2);
+			expect(mockClient.createRoutine).toHaveBeenCalledTimes(4);
 		} finally {
 			await Promise.all([protocolClient.close(), productionServer.close()]);
 		}
 	});
 
 	it("declares bounded feature, kind, and operation metadata for every tool", () => {
-		expect(hevyToolDefinitions).toHaveLength(EXPECTED_TOOL_NAMES.length);
+		expect(hevyToolDefinitions).toHaveLength(22);
 		for (const definition of hevyToolDefinitions) {
 			expect([
 				"workouts",

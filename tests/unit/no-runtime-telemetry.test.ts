@@ -164,3 +164,99 @@ describe("shipped server phones home to nothing but the Hevy API", () => {
 		expect(offenders).toEqual([]);
 	});
 });
+
+// Shipped (non-test) sources only: tests legitimately name fake hosts.
+const SHIPPED_SOURCE_FILES = SOURCE_FILES.filter(
+	(file) =>
+		!file.endsWith(".test.ts") &&
+		!file.includes("/generated/") &&
+		!file.includes("/test-fixtures/") &&
+		!file.endsWith("/test-support.ts"),
+);
+
+// Every absolute URL host a shipped source may name. Only api.hevyapp.com is
+// ever contacted by the server. The rest are inert strings: CORS/redirect
+// origin allowlists (claude.*, chatgpt.com, chat.openai.com, vscode.dev,
+// github.dev), a link the user clicks on the consent page (hevy.com), a doc
+// link in an error hint (github.com), and the Worker's default OAuth resource
+// identifier (mcp.hevy-mcp.dev), which names an audience and is never fetched.
+// Anything else (an icon, a collector, an update check) must be argued for
+// here before it ships.
+const ALLOWED_URL_HOSTS = new Set([
+	"api.hevyapp.com",
+	"hevy.com",
+	"claude.ai",
+	"www.claude.ai",
+	"claude.com",
+	"www.claude.com",
+	"chatgpt.com",
+	"chat.openai.com",
+	"vscode.dev",
+	"github.dev",
+	"github.com",
+	"mcp.hevy-mcp.dev",
+	"localhost",
+	"127.0.0.1",
+]);
+
+const URL_HOST_PATTERN = /https?:\/\/([a-z0-9.-]+)/gi;
+
+// Repository files outside packages/*/src that can still export telemetry:
+// CI workflows (upstream's otel-cicd-action job) and the Worker deploy config
+// (upstream's CLOUDFLARE_OTEL_* destinations).
+const DEPLOY_AND_CI_FILES = [
+	...readdirSync(join(REPO_ROOT, ".github", "workflows"))
+		.filter((name) => /\.ya?ml$/.test(name))
+		.map((name) => join(REPO_ROOT, ".github", "workflows", name)),
+	join(REPO_ROOT, "cloudflare.config.ts"),
+	...PACKAGE_NAMES.map((name) =>
+		join(REPO_ROOT, "packages", name, "cloudflare.config.ts"),
+	).filter((file) => existsSync(file)),
+];
+
+describe("widened tripwires (hevy-mcp@6.2.1 vectors)", () => {
+	it("names no URL host outside the allowlist in shipped sources", () => {
+		const offenders = SHIPPED_SOURCE_FILES.flatMap((file) =>
+			Array.from(
+				readFileSync(file, "utf8").matchAll(URL_HOST_PATTERN),
+				(match) => match[1]?.toLowerCase() ?? "",
+			)
+				.filter((host) => !ALLOWED_URL_HOSTS.has(host))
+				.map((host) => `${file}: ${host}`),
+		);
+
+		expect(offenders).toEqual([]);
+	});
+
+	// Upstream's `feedback` tool forwards agent-written reports to its OTLP
+	// collector through these adapter recorders.
+	it("ships no telemetry-backed feedback recorder", () => {
+		const offenders = SOURCE_FILES.filter((file) =>
+			/(createNodeFeedbackRecorder|createWorkerFeedbackRecorder|getTelemetryAvailability|hevy_mcp\.feedback|isFeedbackToolCall)/.test(
+				readFileSync(file, "utf8"),
+			),
+		);
+
+		expect(offenders).toEqual([]);
+	});
+
+	it("exports no traces or logs from CI or the Worker deploy config", () => {
+		const offenders = DEPLOY_AND_CI_FILES.filter((file) =>
+			/(otel|sentry|opentelemetry|OTEL_|otlp)/i.test(
+				readFileSync(file, "utf8"),
+			),
+		);
+
+		expect(DEPLOY_AND_CI_FILES.length).toBeGreaterThan(2);
+		expect(offenders).toEqual([]);
+	});
+
+	it("installs and runs no `entire` session recorder", () => {
+		const mise = readFileSync(join(REPO_ROOT, "mise.toml"), "utf8");
+		const lefthook = readFileSync(join(REPO_ROOT, "lefthook.yml"), "utf8");
+
+		expect(mise).not.toMatch(/^\s*"?entire"?\s*=/m);
+		expect(lefthook).not.toMatch(/^\s*run:.*\bentire\b/m);
+		expect(existsSync(join(REPO_ROOT, ".entire"))).toBe(false);
+	});
+});
