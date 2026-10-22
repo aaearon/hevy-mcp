@@ -1,5 +1,128 @@
 # hevy-mcp
 
+## 7.1.0
+
+### Minor Changes
+
+- Adopt upstream `chrisdoc/hevy-mcp@6.1.11`.
+  
+  Adopted from upstream:
+  
+  - Effect-based tool handlers, service layer, and lifecycle. `runNodeLifecycle`
+    now returns a `NodeLifecycleHandle` and owns a process `Scope` with
+    `acquireRelease` finalizers, so a partially acquired target is closed exactly
+    once on startup failure.
+  - Typed startup errors (`NodeCliArgumentError`, `InvalidHevyApiKeyError`) with a
+    clean fatal-error path, replacing opaque `Fatal error in main()` output. The
+    fork's own `--issuer-url` and `http+oauth` argument validation now uses them
+    too.
+  - Streamable HTTP idle eviction and initialization admission reimplemented on
+    Effect fibers and a `Semaphore`.
+  - `check-package-changesets.mjs` refactored into a pure, testable
+    `packageChangesetCoverage()` function. This also removes a violation of the
+    repository's own "Git safety in tests" rule: the previous test spun up real
+    Git repositories and set `GIT_AUTHOR_NAME` / `GIT_COMMITTER_NAME`.
+  - Toolchain migration from npm 12 to pnpm 12 and from `hk` to `lefthook`.
+    Upstream moved every internal `@hevy-mcp/*` dependency specifier to
+    `workspace:*`, which npm rejects outright with `EUNSUPPORTEDPROTOCOL`, so this
+    is required rather than cosmetic.
+  
+  Fixed in this fork:
+  
+  - `normalizeRoutineResponse` in `@hevy-mcp/operations` cast Hevy's
+    `{ routine: [Routine] }` mutation response straight to `Routine` without
+    unwrapping it. `isEmptyResponse` only screens `{}`, so the wrapper passed
+    through and every consumer of `routines.create` / `routines.update` received
+    the wrapper instead of the routine. `create-routine` and `update-routine` now
+    route through the operations layer with the unwrap applied, and both the
+    wrapped-array and singular-wrapper shapes have regression coverage.
+  - Upstream's `[VAL-OPS-017]` test asserted `rep_range: null` on a create-mode
+    set. The Hevy API rejects an explicit `rep_range: null`, which breaks every
+    reps-only and warmup set, so this fork omits the key entirely. The assertion
+    was corrected to match the fork's behaviour.
+  
+  Kept out of this fork, per its no-telemetry policy:
+  
+  - `@sentry/*` and `@opentelemetry/*` dependencies, the hard-coded Sentry DSN and
+    `otel.chrisdoc.dev` OTLP collector endpoint, and the npm registry update check
+    (`semver`, `registry.npmjs.org`).
+  - `packages/node/src/utils/startup-errors.ts` arrives from upstream as a new
+    file with no merge conflict and imports `flushTelemetry`, re-wiring telemetry
+    into the Node startup path. The file is kept for its typed error classes; the
+    import is dropped and `flush` defaults to an inert no-op.
+  - `entire`, upstream's session-recording tool wired into five `lefthook` hooks,
+    which uploads developer prompts and transcripts off-machine. Removed from
+    `mise.toml`, `mise.lock`, and `lefthook.yml`, along with `.entire/`,
+    `.pi/extensions/entire/`, `.agents/skills/using-entire/` and
+    `.lefthook/pre-push/entire.sh`.
+
+- Adopt upstream `chrisdoc/hevy-mcp@6.1.7`.
+  
+  Adopted from upstream:
+  
+  - zod-based runtime validation across the Node runtime, stdio parsing, and the
+    Streamable HTTP transport, replacing `as unknown as` casts.
+  - Response-contract refactor splitting projections into `formatters.ts` and
+    `output-schemas.ts`.
+  - `create-routine` now declares an output schema, closing a pre-existing gap.
+  - `HEVY_MCP_API_TIMEOUT` default raised to 60000ms.
+  - KV-backed Hevy API key validation cache in the Worker.
+  - New `tools/oxlint/anti-slop` lint ruleset.
+  
+  Kept out of this fork, per its no-telemetry policy:
+  
+  - `@sentry/*` and `@opentelemetry/*` dependencies, the Sentry rollup plugin, and
+    the npm registry update check (`semver`).
+  - The `otel-cicd-action` CI job and the `CLOUDFLARE_OTEL_*` trace/log
+    destinations in `cloudflare.config.ts`.
+  - The HMAC user pseudonym: `createNodeUserHash` / `createWorkerUserHash`, the
+    `USER_HASH_*` contract constants and their `@hevy-mcp/core` re-exports, and
+    the Worker observer's `userHash` option and `user.hash` span attribute.
+  - City and region level geolocation span tagging in the Worker; only the
+    Cloudflare colo tag is retained.
+
+- Adopt upstream `chrisdoc/hevy-mcp@6.2.1`.
+  
+  Adopted from upstream: the `core` package reorganisation into `diagnostics/`,
+  `protocol/` and `runtime/`; `@hevy-mcp/operations/schemas`; the CLI split into
+  per-resource commands that no longer depend on `core`; a `/health` endpoint on
+  the local Streamable HTTP transport; a `maxGetRetries` option on
+  `createNodeMcpServer`; the Worker's move to `packages/worker/cloudflare.config.ts`
+  and the `cf` CLI; and dependency upgrades (MCP SDK 2.3.1, Effect 4.0.5,
+  Zod 4.6.7).
+  
+  Fork behaviour kept or fixed:
+  
+  - `normalizeRoutineResponse` still unwraps Hevy's `{ routine: [Routine] }`
+    mutation response. Upstream now models only the singular `{ routine }`
+    envelope, and the merge silently dropped the `isEmptyResponse` import the
+    fork's unwrap needs.
+  - `create-routine` now renders the full structured output as text (upstream
+    change); the unwrapped routine sits under `routine`.
+  - The `repository/validation-lanes.json` stdio lane names the fork's
+    `stdio-parsing.test.ts`, not upstream's `stdio-observability.test.ts`.
+  
+  Kept out of this fork, per its no-telemetry policy:
+  
+  - The `feedback` MCP tool's recorders, which forwarded agent-written reports to
+    upstream's OTLP collector at `otel.chrisdoc.dev` (Node through OpenTelemetry,
+    the Worker by direct `fetch`), and the Worker's cached-validation bypass for
+    feedback calls. The core tool definition stays as an inert seam and is now
+    registered only when an embedder passes its own `feedbackRecorder`, so the
+    default server advertises 22 tools.
+  - The server icon at `hevy-mcp.dev/favicon.svg`, which every MCP client fetches
+    on discovery. The fork advertises no icon and links to its own repository.
+  - `@sentry/*`, `@opentelemetry/*`, `@effect/opentelemetry` and `semver` Node
+    dependencies; Node tracing, metrics and `HEVY_MCP_TELEMETRY` config; the
+    Worker `observability` block with `CLOUDFLARE_OTEL_*` destinations; the CI
+    `otel-cicd-action` job and the release step that pushes `OTEL_COLLECTOR_TOKEN`
+    to the Worker; user-hash and geolocation span tags; `entire` and `1password`
+    in `mise.toml`.
+
+### Patch Changes
+
+- [`be35251`](https://github.com/chrisdoc/hevy-mcp/commit/be35251612a40b59f2a9c5738d2dccb8e142ebb5) - Drop the Codecov bundle-analysis rollup plugin from the build; no build output changes.
+
 ## 7.0.0
 
 ### Major Changes
