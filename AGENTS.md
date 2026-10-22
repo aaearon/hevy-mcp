@@ -344,6 +344,10 @@ Rules for maintainers and agents:
 - `repository/topology.json` carries the workspace boundary rules that
   `scripts/check-package-boundaries.mjs` enforces. Every workspace must list
   `@sentry/` and `@opentelemetry/` as forbidden imports.
+- The `cf` (Cloudflare CLI) and `wrangler` phone home by default. Keep
+  `DO_NOT_TRACK=1`, `CF_SEND_TELEMETRY=false`, `WRANGLER_SEND_METRICS=false` in the
+  top-level `env:` of `build-and-test.yml`, `deploy-worker.yml`, `release.yml` and in
+  `mise.toml` `[env]` across upstream merges (guarded by the telemetry test).
 - `HEVY_MCP_DEBUG=1` is the only sanctioned diagnostic. It writes to stderr and
   must never leave the machine.
 - **`entire` and `1password` are deliberately excluded from `mise.toml`.**

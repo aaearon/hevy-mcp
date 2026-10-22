@@ -259,4 +259,31 @@ describe("widened tripwires (hevy-mcp@6.2.1 vectors)", () => {
 		expect(lefthook).not.toMatch(/^\s*run:.*\bentire\b/m);
 		expect(existsSync(join(REPO_ROOT, ".entire"))).toBe(false);
 	});
+
+	it("opts the Cloudflare CLIs out of telemetry in workflows and mise.toml", () => {
+		const files = [
+			".github/workflows/build-and-test.yml",
+			".github/workflows/deploy-worker.yml",
+			".github/workflows/release.yml",
+			"mise.toml",
+		];
+		const missing: string[] = [];
+		for (const file of files) {
+			const text = readFileSync(join(REPO_ROOT, file), "utf8");
+			for (const name of [
+				"DO_NOT_TRACK",
+				"CF_SEND_TELEMETRY",
+				"WRANGLER_SEND_METRICS",
+			]) {
+				const expected = name === "DO_NOT_TRACK" ? "1" : "false";
+				if (
+					!new RegExp(`^\\s*${name}\\s*[:=]\\s*"${expected}"`, "m").test(text)
+				) {
+					missing.push(`${file}:${name}`);
+				}
+			}
+		}
+
+		expect(missing).toEqual([]);
+	});
 });

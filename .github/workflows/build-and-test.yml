@@ -11,6 +11,9 @@ permissions:
   contents: read
 
 env:
+  DO_NOT_TRACK: "1"
+  CF_SEND_TELEMETRY: "false"
+  WRANGLER_SEND_METRICS: "false"
   ROLLUP_SKIP_NODEJS_NATIVE_BUILD: "true"
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
